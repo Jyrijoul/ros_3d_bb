@@ -34,6 +34,10 @@ class ros_3d_bb:
         self.depth_image_topic = "/camera/aligned_depth_to_color/image_raw"
         self.bb_topic = "/yolo_bounding_box"
 
+        # Published topics
+        self.color_image_out_topic = "/ros_3d_bb/color"
+        self.depth_image_out_topic = "/ros_3d_bb/depth"
+
         # For matching different topics' messages based on timestamps:
         self.max_time_difference = 0.1
         self.queue_size = 10
@@ -51,6 +55,12 @@ class ros_3d_bb:
 
         # Start all the subscriptions and set all the callbacks
         self.start_subscribing()
+
+        # Publishers
+        self.color_out_pub = rospy.Publisher(
+            self.color_image_out_topic, Image, queue_size=1)
+        self.depth_out_pub = rospy.Publisher(
+            self.depth_image_out_topic, Image, queue_size=1)
 
     def start_subscribing(self):
         # For the camera instrinsics:
@@ -146,14 +156,30 @@ class ros_3d_bb:
         bb_width = self.corner_bottom_right[0] - self.corner_top_left[0]
         bb_height = self.corner_bottom_right[1] - self.corner_top_left[1]
 
+        stride_x = 20
+        stride_y = 20
+
+        # range_x = bb_width // stride_x
+        # range_y = bb_height // stride_y
+
         bb_depths = np.zeros((bb_height, bb_width))
 
-        for x in range(self.corner_top_left[0], self.corner_bottom_right[0]):
-            for y in range(self.corner_top_left[1], self.corner_bottom_right[1]):
-                bb_depths[y - self.corner_top_left[1], x -
-                          self.corner_top_left[0]] = self.pixel_to_point(x, y)[2]
+        # for x in range(self.corner_top_left[0], self.corner_bottom_right[0]):
+        #     for y in range(self.corner_top_left[1], self.corner_bottom_right[1]):
+        #         bb_depths[y - self.corner_top_left[1], x -
+        #                   self.corner_top_left[0]] = self.pixel_to_point(x, y)[2]
 
-        depth = np.mean(bb_depths)
+        for x in range(self.corner_top_left[0] + stride_x, self.corner_bottom_right[0], stride_x):
+            for y in range(self.corner_top_left[1] + stride_y, self.corner_bottom_right[1], stride_y):
+                pixel_depth = self.pixel_to_point(x, y)[2]
+                bb_depths[y - self.corner_top_left[1], x -
+                          self.corner_top_left[0]] = pixel_depth
+                circle_color = (0, 0, 255) if pixel_depth > 0 else (255, 0, 0)
+                cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
+
+        depths = bb_depths[np.where(bb_depths > 0)]
+
+        depth = np.median(depths)
         return depth
 
     def bounding_box_callback(self, bb_multiarray):
@@ -162,14 +188,35 @@ class ros_3d_bb:
 
         # Extract as many bounding box corner coordinates as found:
         nr_of_bounding_boxes = len(bb_multiarray.data) // 4
-        depths = []
+        self.depths = {}
         for i in range(nr_of_bounding_boxes):
-            self.corner_top_left = (bb_multiarray.data[0 +  4 * i], bb_multiarray.data[1 +  4 * i])
+            self.corner_top_left = (
+                bb_multiarray.data[0 + 4 * i], bb_multiarray.data[1 + 4 * i])
             self.corner_bottom_right = (
-                bb_multiarray.data[2 +  4 * i], bb_multiarray.data[3 +  4 * i])
+                bb_multiarray.data[2 + 4 * i], bb_multiarray.data[3 + 4 * i])
 
-            depths.append(self.bounding_box_depth())
-        rospy.loginfo("BB average depths:" + str(depths))
+            self.depths[(self.corner_top_left, self.corner_bottom_right)
+                        ] = self.bounding_box_depth()
+        rospy.loginfo("BB average depths:" + str(self.depths))
+
+    def depths_to_image(self):
+        # print(self.depths.keys(), "len:", len(self.depths.keys()))
+        for corners, depth in self.depths.items():
+            corner = (corners[0][0],
+                      (corners[0][1] + corners[1][1]) // 2)
+            # print("Corners:", corners)
+            text = str(round(depth, 1)) + " mm"
+            cv2.putText(self.color_image, text,
+                        corner, 0, 0.75, [255, 0, 255], thickness=2)
+            color = [0, 255, 0]
+            cv2.rectangle(self.color_image, corners[0], corners[1], color,
+                          thickness=1, lineType=cv2.LINE_AA)
+
+    def publish_color_image(self, image):
+        self.color_out_pub.publish(self.bridge.cv2_to_imgmsg(image, "bgr8"))
+
+    def publish_depth_image(self, image):
+        self.depth_out_pub.publish(self.bridge.cv2_to_imgmsg(image, "16UC1"))
 
     def processing(self, color_image, depth_image, bb_multiarray):
         self.color_callback(color_image)
@@ -182,10 +229,10 @@ class ros_3d_bb:
         # 20 * np.log10(self.depth_image / np.amax(self.depth_image)),
         # print(np.amax(self.depth_image), np.amin(self.depth_image))
 
-        # color = [0, 255, 0]
-        # c1, c2 = self.corner_top_left, self.corner_bottom_right
-        # cv2.rectangle(self.color_image, c1, c2, color, thickness=1, lineType=cv2.LINE_AA)
-
+        #cv2.putText(self.color_image, )
+        self.depths_to_image()
+        self.publish_color_image(self.color_image)
+        self.publish_depth_image(depth_image)
         # cv2.imshow("Color", self.color_image)
         # cv2.imshow("Depth", depth_image)
         # k = cv2.waitKey(10) & 0xFF
