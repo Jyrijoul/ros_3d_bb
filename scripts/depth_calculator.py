@@ -27,6 +27,8 @@ class ros_3d_bb:
         self.depth_image = 0
         self.corner_top_left = 0
         self.corner_bottom_right = 0
+        self.depths = {}
+        self.coordinates = (0, 0, 0)
 
         # Subscribed topics
         self.camera_info_topic = "/camera/depth/camera_info"
@@ -113,6 +115,7 @@ class ros_3d_bb:
             self.intrinsics.ppy = camera_info.K[5]
             self.intrinsics.fx = camera_info.K[0]
             self.intrinsics.fy = camera_info.K[4]
+            print(camera_info.distortion_model)
             if camera_info.distortion_model == 'plumb_bob':
                 self.intrinsics.model = rs2.distortion.brown_conrady
             elif camera_info.distortion_model == 'equidistant':
@@ -162,7 +165,8 @@ class ros_3d_bb:
         # range_x = bb_width // stride_x
         # range_y = bb_height // stride_y
 
-        bb_depths = np.zeros((bb_height, bb_width))
+        bb_depths = np.zeros((bb_height, bb_width, 3))
+        print(np.shape(bb_depths))
 
         # for x in range(self.corner_top_left[0], self.corner_bottom_right[0]):
         #     for y in range(self.corner_top_left[1], self.corner_bottom_right[1]):
@@ -171,15 +175,22 @@ class ros_3d_bb:
 
         for x in range(self.corner_top_left[0] + stride_x, self.corner_bottom_right[0], stride_x):
             for y in range(self.corner_top_left[1] + stride_y, self.corner_bottom_right[1], stride_y):
-                pixel_depth = self.pixel_to_point(x, y)[2]
+                point = self.pixel_to_point(x, y)
                 bb_depths[y - self.corner_top_left[1], x -
-                          self.corner_top_left[0]] = pixel_depth
-                circle_color = (0, 0, 255) if pixel_depth > 0 else (255, 0, 0)
+                          self.corner_top_left[0]] = point
+                # Display a little circle on the RGB image where each sample is located
+                circle_color = (0, 0, 255) if point[2] > 0 else (255, 0, 0)
                 cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
 
-        depths = bb_depths[np.where(bb_depths > 0)]
+        # Horrible syntax, I know!
+        print(np.shape(bb_depths[:, :, 2] > 0))
+        # Only the points with non-zero depth
+        filtered_points = bb_depths[np.where(bb_depths[:, :, 2] > 0)]
+        # print(np.shape(depths), depths[0])
+        # print(depths)
 
-        depth = np.median(depths)
+        depth = np.median(filtered_points[:, 2])
+        self.coordinates = (np.median(filtered_points[:, 0]), np.median(filtered_points[:, 1]), depth)
         return depth
 
     def bounding_box_callback(self, bb_multiarray):
@@ -195,9 +206,30 @@ class ros_3d_bb:
             self.corner_bottom_right = (
                 bb_multiarray.data[2 + 4 * i], bb_multiarray.data[3 + 4 * i])
 
+            # Find the depth based on the bounding box
             self.depths[(self.corner_top_left, self.corner_bottom_right)
                         ] = self.bounding_box_depth()
-        rospy.loginfo("BB average depths:" + str(self.depths))
+
+        # Calculate the center pixel index
+        center_pixel = ((self.corner_bottom_right[0] + self.corner_top_left[0]) // 2,
+                        (self.corner_bottom_right[1] + self.corner_top_left[1]) // 2)
+        # Calculate the center point 3D-coordinates
+        # self.coordinates = self.pixel_to_point(
+        #     center_pixel[0], center_pixel[1])
+
+        circle_color = (0, 255, 0)
+        cv2.circle(self.color_image,
+                   (center_pixel[0], center_pixel[1]), 5, circle_color, 2)
+
+        circle_color = (255, 0, 255)
+        cv2.circle(self.color_image,
+                   (self.corner_top_left[0], self.corner_top_left[1]), 5, circle_color, 2)
+        circle_color = (255, 0, 255)
+        cv2.circle(self.color_image,
+                   (self.corner_bottom_right[0], self.corner_bottom_right[1]), 5, circle_color, 2)
+
+        rospy.loginfo("BB average depths:" + str(self.depths) +
+                      "\tPoint: " + str(self.coordinates))
 
     def depths_to_image(self):
         # print(self.depths.keys(), "len:", len(self.depths.keys()))
