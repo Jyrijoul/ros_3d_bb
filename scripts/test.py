@@ -20,7 +20,7 @@ VERBOSE = True
 calculate_bb_depth = True
 
 
-class ros_3d_bb:
+class Ros_3d_bb:
     def __init__(self, shutdown_event):
         # An Event to coordinate the shut down of threads.
         self.shutdown_event = shutdown_event
@@ -181,7 +181,7 @@ class ros_3d_bb:
 def main(args):
     rospy.init_node("ros_3d_bb")
     shutdown_event = threading.Event()
-    module = ros_3d_bb(shutdown_event)
+    module = Ros_3d_bb(shutdown_event)
 
     # Creating the processing thread.
     processing_thread = threading.Thread(

@@ -12,9 +12,13 @@ import threading
 
 # Send log to output?
 VERBOSE = True
+# Turn on measurement taking system?
+taking_measurements = True
+# If taking measurements, specify the measurement output file name:
+measurements_file = "measurements.txt"
 
 
-class viewer:
+class Viewer:
     def __init__(self, shutdown_event):
         # An Event to coordinate the shut down of threads.
         self.shutdown_event = shutdown_event
@@ -34,7 +38,9 @@ class viewer:
 
         # Subscribed topics
         self.color_image_topic = "/ros_3d_bb/color"
-        self.depth_image_topic = "ros_3d_bb/depth"
+        self.depth_image_topic = "/ros_3d_bb/depth"
+        if taking_measurements:
+            a = 0
 
         # Subscriptions
         self.color_image_sub = message_filters.Subscriber(
@@ -78,7 +84,7 @@ class viewer:
                     # Not sure whether the next line is necessary...
                     rospy.loginfo("Pressed 'q' to shut down.")
                     rospy.signal_shutdown("Pressed 'q' to shut down.")
-                
+
             except KeyboardInterrupt:
                 break
 
@@ -88,7 +94,7 @@ class viewer:
 def main():
     rospy.init_node("ros_3d_bb_viewer")
     shutdown_event = threading.Event()
-    module = viewer(shutdown_event)
+    module = Viewer(shutdown_event)
 
     # Creating the displaying thread.
     display_images_thread = threading.Thread(
