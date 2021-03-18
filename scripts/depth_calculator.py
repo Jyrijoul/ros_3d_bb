@@ -284,9 +284,7 @@ class Ros_3d_bb:
             2,
         )
 
-        rospy.loginfo(
-            "BB average depths:" + str(self.depths) + "\tPoints: " + str(self.points)
-        )
+        rospy.loginfo("Points: " + str(self.points))
 
     def depths_to_image(self):
         # print(self.depths.keys(), "len:", len(self.depths.keys()))
