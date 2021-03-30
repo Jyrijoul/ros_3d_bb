@@ -25,6 +25,7 @@ class Viewer:
         self.shutdown_event = shutdown_event
 
         # Variables to hold both the current color, depth image and points
+        self.raw_image = 0
         self.color_image = 0
         self.depth_image = 0
         self.points = []
@@ -39,12 +40,16 @@ class Viewer:
             rospy.loginfo("Created the CV Bridge.")
 
         # Subscribed topics
+        self.raw_image_topic = "/ros_3d_bb/raw"
         self.color_image_topic = "/ros_3d_bb/color"
         self.depth_image_topic = "/ros_3d_bb/depth"
         # if taking_measurements:
         self.bb_point_topic = "/ros_3d_bb/point"
 
         # Subscriptions
+        self.raw_image_sub = message_filters.Subscriber(
+            self.raw_image_topic, Image, queue_size=1
+        )
         self.color_image_sub = message_filters.Subscriber(
             self.color_image_topic, Image, queue_size=1
         )
@@ -78,7 +83,7 @@ class Viewer:
         #         allow_headerless=True,
         #     )
         self.time_synchronizer = message_filters.ApproximateTimeSynchronizer(
-            [self.color_image_sub, self.depth_image_sub],
+            [self.color_image_sub, self.depth_image_sub, self.raw_image_sub],
             self.queue_size,
             self.max_time_difference,
             allow_headerless=True,
@@ -90,9 +95,10 @@ class Viewer:
         # print(bb_point_multiarray)
         self.process_bb_point_multiarray(bb_point_multiarray)
 
-    def process_images(self, ros_color_image, ros_depth_image, bb_point_multiarray=0):
+    def process_images(self, ros_color_image, ros_depth_image, raw_image, bb_point_multiarray=0):
         try:
             # print("Start")
+            self.raw_image = self.bridge.imgmsg_to_cv2(raw_image, "bgr8")
             self.color_image = self.bridge.imgmsg_to_cv2(ros_color_image, "bgr8")
             self.depth_image = self.bridge.imgmsg_to_cv2(
                 ros_depth_image, ros_depth_image.encoding
@@ -128,9 +134,9 @@ class Viewer:
                 )
 
                 # 20 * np.log10(self.depth_image / np.amax(self.depth_image)),
-
-                cv2.imshow("Color", self.color_image)
+                cv2.imshow("Raw color", self.raw_image)
                 cv2.imshow("Depth", self.depth_image)
+                cv2.imshow("Color", self.color_image)
                 # print(np.amax(self.depth_image), np.amin(self.depth_image))
 
                 # print(self.points)
@@ -145,10 +151,11 @@ class Viewer:
                     elif k == ord("s"):
                         now = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
                         print(now)
+                        cv2.imwrite(measurements_file_base + "_" + now + "_raw.png", self.raw_image)
                         cv2.imwrite(measurements_file_base + "_" + now + "_color.png", self.color_image)
                         cv2.imwrite(measurements_file_base + "_" + now + "_depth.png", self.depth_image)
                         with open(measurements_file_base + ".txt", "a") as f:
-                            f.write(str(self.points) + " " + now + "\n")
+                            f.write(str(self.points) + ";" + now + "\n")
                 else:
                     k = cv2.waitKey(10) & 0xFF
                     if k == ord("q"):

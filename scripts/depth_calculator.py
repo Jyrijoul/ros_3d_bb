@@ -25,6 +25,7 @@ publishing_bb_point = True
 class Ros_3d_bb:
     def __init__(self):
         # Variables to hold both the current color and depth image + bounding box etc
+        self.raw_image = 0
         self.color_image = 0
         self.depth_image = 0
         self.corner_top_left = 0
@@ -33,12 +34,15 @@ class Ros_3d_bb:
         self.coordinates = (0, 0, 0)
 
         # Subscribed topics
-        self.camera_info_topic = "/camera/depth/camera_info"
+        # For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"
+        self.camera_info_topic = "/camera/aligned_depth_to_color/camera_info"
+        # self.camera_info_topic = "/camera/color/camera_info"
         self.color_image_topic = "/camera/color/image_raw"
         self.depth_image_topic = "/camera/aligned_depth_to_color/image_raw"
         self.bb_topic = "/yolo_bounding_box"
 
         # Published topics
+        self.raw_image_out_topic = "/ros_3d_bb/raw"
         self.color_image_out_topic = "/ros_3d_bb/color"
         self.depth_image_out_topic = "/ros_3d_bb/depth"
         if publishing_bb_point:
@@ -63,6 +67,9 @@ class Ros_3d_bb:
         self.start_subscribing()
 
         # Publishers
+        self.raw_out_pub = rospy.Publisher(
+            self.raw_image_out_topic, Image, queue_size=1
+        )
         self.color_out_pub = rospy.Publisher(
             self.color_image_out_topic, Image, queue_size=1
         )
@@ -129,7 +136,8 @@ class Ros_3d_bb:
             self.intrinsics.ppy = camera_info.K[5]
             self.intrinsics.fx = camera_info.K[0]
             self.intrinsics.fy = camera_info.K[4]
-            print(camera_info.distortion_model)
+            print("Camera instrinsics:")
+            print(self.intrinsics)
             if camera_info.distortion_model == "plumb_bob":
                 self.intrinsics.model = rs2.distortion.brown_conrady
             elif camera_info.distortion_model == "equidistant":
@@ -147,6 +155,7 @@ class Ros_3d_bb:
     def color_callback(self, color_image):
         try:
             self.color_image = self.bridge.imgmsg_to_cv2(color_image, "bgr8")
+            self.raw_image = self.color_image.copy()
         except CvBridgeError as err:
             rospy.logerr(err)
 
@@ -176,8 +185,12 @@ class Ros_3d_bb:
         stride_x = 20
         stride_y = 20
 
-        # range_x = bb_width // stride_x
-        # range_y = bb_height // stride_y
+        times_x = np.ceil(bb_width / stride_x) - 1
+        times_y = np.ceil(bb_height / stride_y) - 1
+
+        offset_x = int((bb_width - times_x * stride_x - 1) // 2)
+        offset_y = int((bb_height - times_y * stride_y - 1) // 2)
+        print(offset_x, offset_y)
 
         bb_points = np.zeros((bb_height, bb_width, 3))
         print("bb_points shape:", np.shape(bb_points))
@@ -188,10 +201,10 @@ class Ros_3d_bb:
         #                   self.corner_top_left[0]] = self.pixel_to_point(x, y)[2]
 
         for x in range(
-            self.corner_top_left[0] + stride_x, self.corner_bottom_right[0], stride_x
+            self.corner_top_left[0] + offset_x, self.corner_bottom_right[0], stride_x
         ):
             for y in range(
-                self.corner_top_left[1] + stride_y,
+                self.corner_top_left[1] + offset_y,
                 self.corner_bottom_right[1],
                 stride_y,
             ):
@@ -305,6 +318,9 @@ class Ros_3d_bb:
                 lineType=cv2.LINE_AA,
             )
 
+    def publish_raw_image(self):
+        self.raw_out_pub.publish(self.bridge.cv2_to_imgmsg(self.raw_image, "bgr8"))
+
     def publish_color_image(self, image):
         self.color_out_pub.publish(self.bridge.cv2_to_imgmsg(image, "bgr8"))
 
@@ -328,6 +344,7 @@ class Ros_3d_bb:
 
         # cv2.putText(self.color_image, )
         self.depths_to_image()
+        self.publish_raw_image()
         self.publish_color_image(self.color_image)
         self.publish_depth_image(depth_image)
 
