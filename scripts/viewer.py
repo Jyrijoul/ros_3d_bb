@@ -127,6 +127,7 @@ class Viewer:
             )
 
     def display_images(self):
+        cv2.namedWindow('Color', cv2.WINDOW_NORMAL)
         while not self.shutdown_event.is_set():
             try:
                 depth_image = cv2.normalize(
