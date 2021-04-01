@@ -14,7 +14,7 @@ import datetime
 # Send log to output?
 VERBOSE = True
 # Turn on measurement taking system?
-taking_measurements = True
+taking_measurements = False
 # If taking measurements, specify the measurement output file name base:
 measurements_file_base = "measurements"
 

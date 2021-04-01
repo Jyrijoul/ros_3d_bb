@@ -335,7 +335,11 @@ class Ros_3d_bb:
     def processing(self, color_image, depth_image, bb_multiarray):
         self.color_callback(color_image)
         self.depth_callback(depth_image)
+
+        timing_start = time.perf_counter()
         self.bounding_box_callback(bb_multiarray)
+        timing_stop = time.perf_counter()
+        rospy.loginfo("Time elapsed:" + str(timing_stop - timing_start) + " s")
 
         depth_image = cv2.normalize(self.depth_image, None, 65535, 0, cv2.NORM_MINMAX)
 
