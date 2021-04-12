@@ -12,10 +12,11 @@ import threading
 import queue
 import time
 import pyrealsense2.pyrealsense2 as rs2
+import cProfile
 
 
 # Send log to output?
-VERBOSE = True
+VERBOSE = False
 # Calculate depth based on bounding boxes?
 calculate_bb_depth = True
 # Publish the bounding box mean point in 3D-coordinate space?
@@ -24,8 +25,36 @@ publishing_bb_point = True
 modify_color_image = False
 # Performance measurement
 measure_performance = True
-# Use the optimized version?
+# Performance measurement in more detail
+measure_detailed_performance = True
+# Use the optimized version? "None" to use both
 use_optimized = True
+
+
+class Timer:
+    def __init__(self, name, in_ms=True):
+        self.name = name
+        self.in_ms = in_ms
+        self.times = [time.perf_counter()]
+
+    def update(self):
+        self.times.append(time.perf_counter())
+
+    def stop(self, print_output=True):
+        self.times.append(time.perf_counter())
+
+        output = []
+        for i in range(1, len(self.times)):
+            if not self.in_ms:
+                output.append(self.times[i] - self.times[i - 1])
+            else:
+                output.append((self.times[i] - self.times[i - 1]) * 1000)
+
+        if print_output:
+            print("Times (" + self.name + "):")
+            print(output)
+
+        return output
 
 
 class Ros_3d_bb:
@@ -192,108 +221,150 @@ class Ros_3d_bb:
         return point
 
     def bounding_box_to_coordinates(self):
+        timer = Timer("bb_to_coord")
+
         bb_width = self.corner_bottom_right[0] - self.corner_top_left[0]
         bb_height = self.corner_bottom_right[1] - self.corner_top_left[1]
+
+        timer.update()
 
         stride_x = 20
         stride_y = 20
 
+        timer.update()
+
         times_x = int(np.ceil(bb_width / stride_x))
         times_y = int(np.ceil(bb_height / stride_y))
+
+        timer.update()
 
         # Offset is needed to center the samples.
         offset_x = int((bb_width - (times_x - 1) * stride_x - 1) // 2)
         offset_y = int((bb_height - (times_y - 1) * stride_y - 1) // 2)
 
-        bb_points = np.zeros((bb_height, bb_width, 3))
-
-        if VERBOSE:
-            print(offset_x, offset_y)
-            print("bb_points shape:", np.shape(bb_points))
+        timer.stop()
 
         # Original version
-        for x in range(
-            self.corner_top_left[0] +
-                offset_x, self.corner_bottom_right[0], stride_x
-        ):
-            for y in range(
-                self.corner_top_left[1] + offset_y,
-                self.corner_bottom_right[1],
-                stride_y,
+        if not use_optimized:
+            bb_points = np.zeros((bb_height, bb_width, 3))
+
+            # if VERBOSE:
+            #     print(offset_x, offset_y)
+            #     print("bb_points shape:", np.shape(bb_points))
+            for x in range(
+                self.corner_top_left[0] +
+                    offset_x, self.corner_bottom_right[0], stride_x
             ):
-                point = self.pixel_to_point(x, y)
-                bb_points[
-                    y - self.corner_top_left[1], x - self.corner_top_left[0]
-                ] = point
-                # Display a little circle on the RGB image where each sample is located
-                circle_color = (0, 0, 255) if point[2] > 0 else (255, 0, 0)
-                cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
+                for y in range(
+                    self.corner_top_left[1] + offset_y,
+                    self.corner_bottom_right[1],
+                    stride_y,
+                ):
+                    point = self.pixel_to_point(x, y)
+                    bb_points[
+                        y - self.corner_top_left[1], x - self.corner_top_left[0]
+                    ] = point
+                    # Display a little circle on the RGB image where each sample is located
+                    circle_color = (0, 0, 255) if point[2] > 0 else (255, 0, 0)
+                    cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
+            
+            # Only the points with non-zero depth
+            filtered_points = bb_points[
+                np.where(bb_points[:, :, 2] > 0)
+            ]  # Horrible syntax, I know!
+
+            # Return the median of each axis
+            old_medians = (
+                np.median(filtered_points[:, 0]),
+                np.median(filtered_points[:, 1]),
+                np.median(filtered_points[:, 2]),
+            )
+            medians = old_medians
 
         # Optimized version
-        x_range = np.arange(
-            self.corner_top_left[0] + offset_x, self.corner_bottom_right[0], stride_x)
-        y_range = np.arange(
-            self.corner_top_left[1] + offset_y, self.corner_bottom_right[1], stride_y)
-        xx, yy = np.meshgrid(x_range, y_range)
-        depths = self.depth_image[yy, xx]
+        # A VERY important note:
+        # only use this when the camera's distortion coefficients are 0!!!
+        if use_optimized or use_optimized is None:
+            if measure_detailed_performance:
+                start_times = []
+                stop_times = []
+                start_times.append(time.perf_counter())
+            x_range = np.arange(
+                self.corner_top_left[0] + offset_x, self.corner_bottom_right[0], stride_x)
+            y_range = np.arange(
+                self.corner_top_left[1] + offset_y, self.corner_bottom_right[1], stride_y)
+            xx, yy = np.meshgrid(x_range, y_range)
+            depths = self.depth_image[yy, xx]
+            points = np.zeros((times_y, times_x, 3))
 
-        points = np.zeros((times_y, times_x, 3))
+            if measure_detailed_performance:
+                timing = time.perf_counter()
+                stop_times.append(timing)
+                start_times.append(timing)
 
-        print(times_y, times_x)
-        # We can only calculate the points if we know the camera's parameters.
-        if self.intrinsics:
-            #print(type(points))
-            #print(np.shape(points[:, :]), np.shape([(xx - self.intrinsics.ppx) / self.intrinsics.fx * depths, (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths, depths]))
-            # https://github.com/IntelRealSense/librealsense/blob/v2.24.0/wrappers/python/examples/box_dimensioner_multicam/helper_functions.py#L121-L147
-            points[:, :, 0] = (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
-            points[:, :, 1] = (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
-            points[:, :, 2] = depths
-            # (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
-            #X = (pixel_x - self.intrinsics.ppx) / camera_intrinsics.fx * depth
-            #Y = (pixel_y - self.intrinsics.ppy) / camera_intrinsics.fy * depth
-            #print(type(points))
-            print("Shape:", np.shape(points))
+            # We can only calculate the points if we know the camera's parameters.
+            if self.intrinsics:
+                # https://github.com/IntelRealSense/librealsense/blob/v2.24.0/wrappers/python/examples/box_dimensioner_multicam/helper_functions.py#L121-L147
+                points[:, :, 0] = (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
+                points[:, :, 1] = (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
+                points[:, :, 2] = depths
 
-        if VERBOSE:
-            print("bb_points[:, :, 2] > 0 shape:",
-                  np.shape(bb_points[:, :, 2] > 0))
-        # Only the points with non-zero depth
-        filtered_points = bb_points[
-            np.where(bb_points[:, :, 2] > 0)
-        ]  # Horrible syntax, I know!
+            if measure_detailed_performance:
+                timing = time.perf_counter()
+                stop_times.append(timing)
+                start_times.append(timing)
 
-        # Only the points with non-zero depth (new)
-        filtered_points_new = points[
-            np.where(points[:, :, 2] > 0)
-        ]  # Horrible syntax, I know!
+            # Only the points with non-zero depth (new)
+            filtered_points_new = points[
+                np.where(points[:, :, 2] > 0)
+            ]
 
-        # Return the median of each axis
-        old_medians = (
-            np.median(filtered_points[:, 0]),
-            np.median(filtered_points[:, 1]),
-            np.median(filtered_points[:, 2]),
-        )
+            if measure_detailed_performance:
+                timing = time.perf_counter()
+                stop_times.append(timing)
+                start_times.append(timing)
 
-        #print("Filtered shape:", np.shape(filtered_points_new))
-        new_medians = np.median(filtered_points_new, axis=0)
-        new_medians = tuple(new_medians)
-        #print("Medians:")
-        #print(old_medians)
-        #print(new_medians)
-        #return old_medians
-        return new_medians
+            new_medians = np.median(filtered_points_new, axis=0)
+
+            if measure_detailed_performance:
+                timing = time.perf_counter()
+                stop_times.append(timing)
+                start_times.append(timing)
+
+            new_medians = tuple(new_medians)
+            medians = new_medians
+
+            if measure_detailed_performance:
+                # cp.disable()
+                # cp.print_stats()
+                timing = time.perf_counter()
+                stop_times.append(timing)
+                timings = np.asarray(stop_times) - np.asarray(start_times)
+                print("Timings:", timings * 1000, " ms")
+        
+        if use_optimized is None:
+            print("Medians:")
+            print("Old:", old_medians)
+            print("New:", new_medians)
+        
+        return medians
 
     def bounding_box_callback(self, bb_multiarray):
-        img_height, img_width = np.shape(self.color_image)[:2]
-        if VERBOSE:
-            print(img_height, img_width)
+        # img_height, img_width = np.shape(self.color_image)[:2]
+        # if VERBOSE:
+            # print(img_height, img_width)
 
         # bb_multiarray may contain zero to many bounding boxes,
         # each described by 4 consecutive values.
 
         # Extract as many bounding box corner coordinates as found:
+        timer = Timer("bb_callback")
+
         nr_of_bounding_boxes = len(bb_multiarray.data) // 4
         self.points = {}
+
+        timer.update()
+
         for i in range(nr_of_bounding_boxes):
             self.corner_top_left = (
                 bb_multiarray.data[0 + 4 * i],
@@ -304,15 +375,19 @@ class Ros_3d_bb:
                 bb_multiarray.data[3 + 4 * i],
             )
 
+            timer.update()
+
             # Find the x, y and z (in mm) based on the bounding box
             point = self.bounding_box_to_coordinates()
             self.points[(self.corner_top_left,
                          self.corner_bottom_right)] = point
-            circle_color = (0, 255, 0)
 
+            timer.update()
+            
             # Project the point with the mean x, y, z back into a pixel to display it
             # Can be disables for performance reasons:
             if modify_color_image:
+                circle_color = (0, 255, 0)
                 pixel = rs2.rs2_project_point_to_pixel(self.intrinsics, point)
                 if VERBOSE:
                     print(
@@ -351,6 +426,8 @@ class Ros_3d_bb:
 
         if VERBOSE:
             rospy.loginfo("Points: " + str(self.points))
+
+        timer.stop()
 
     def depths_to_image(self):
         # print(self.depths.keys(), "len:", len(self.depths.keys()))
