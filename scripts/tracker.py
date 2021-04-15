@@ -12,14 +12,49 @@ VERBOSE = True
 DEBUG = False
 
 
-class DetectedObject:
-    def __init__(self, uid, x=0, y=0, v_x=0, v_y=0):
+class CameraPoint:
+    def __init__(self, point_from_camera):
+        self.camera_x = point_from_camera[0]
+        self.camera_y = point_from_camera[1]
+        self.camera_z = point_from_camera[2]
+        self.camera_s_x = point_from_camera[3]
+        self.camera_s_y = point_from_camera[4]
+        self.camera_s_z = point_from_camera[5]
+
+    def to_bev_point(self):
+        return BevPoint(self.camera_x, self.camera_z, self.camera_y,
+                        self.camera_s_x, self.camera_s_z, self.camera_s_y)
+
+
+class BevPoint:
+    def __init__(self, x, y, z, s_x, s_y, s_z):
         self.x = x
         self.y = y
-        self.v_x = v_x
-        self.v_y = v_y
+        self.z = z
+        self.s_x = s_x
+        self.s_y = s_y
+        self.s_z = s_z
+
+    def to_camera_point(self):
+        return CameraPoint((self.x, self.z, self.y,
+                            self.s_x, self.s_z, self.s_y))
+
+
+class DetectedObject:
+    def __init__(self, uid, bev_point=None, camera_point=None):
+        if camera_point and not bev_point:
+            bev_point = camera_point.to_bev_point()
+        self.x = bev_point.x
+        self.y = bev_point.y
+        self.z = bev_point.z
+        self.radius = bev_point.s_x
+        self.height = bev_point.s_z
+
+        self.v_x = 0
+        self.v_y = 0
         self.uid = uid
         self.disappeared = 0
+
         if DEBUG:
             print("Created new object:", self)
 
@@ -32,13 +67,16 @@ class DetectedObject:
     def __str__(self):
         return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y) + ", v_x: " + str(self.v_x) + ", v_y: " + str(self.v_y)
 
-    def update(self, xy):
-        x, y = xy
-        """Updates the object's position, calculates the velocity, resets disappeared counter."""
+    def update(self, bev_point):
+        """Updates the object's position, scale, calculates the velocity, resets disappeared counter."""
+        x, y = bev_point.x, bev_point.y
         self.v_x = x - self.x
         self.v_y = y - self.y
         self.x = x
         self.y = y
+        self.z = bev_point.z
+        self.radius = bev_point.s_x
+        self.height = bev_point.s_z
         self.disappeared = 0
 
     def has_disappeared(self):
@@ -52,9 +90,9 @@ class Tracker:
 
         self.objects = []
 
-    def new_object(self, xy):
+    def new_object(self, bev_point):
         """Register a newly detected object."""
-        self.objects.append(DetectedObject(self.next_uid, xy[0], xy[1]))
+        self.objects.append(DetectedObject(self.next_uid, bev_point))
 
         # Increment the UID.
         self.next_uid += 1
@@ -73,19 +111,19 @@ class Tracker:
         if detected_object.disappeared >= self.max_frames_disappeared:
             self.objects.remove(detected_object)
 
-    def update(self, points: list):
+    def update(self, bev_points: list):
         """Updates the positions of detected objects, add new objects and deletes old objects."""
-        if len(points) == 0:
+        if len(bev_points) == 0:
             for detected_object in self.objects:
                 detected_object.disappeared()
                 self.delete_if_disappeared(detected_object)
         elif len(self.objects) == 0:
-            for point in points:
-                self.new_object(point)
+            for bev_point in bev_points:
+                self.new_object(bev_point)
         else:
             current_coordinates = self.get_coordinates()
             distances = distance.cdist(
-                np.array(current_coordinates), points, "euclidean")
+                np.array(current_coordinates), [(o.x, o.y) for o in bev_points], "euclidean")
 
             # The following part is from the following article:
             # https://www.pyimagesearch.com/2018/07/23/simple-object-tracking-with-opencv/
@@ -101,7 +139,7 @@ class Tracker:
                 if i in used_rows or j in used_cols:
                     continue
                 else:
-                    self.objects[i].update(points[j])
+                    self.objects[i].update(bev_points[j])
                     used_rows.add(i)
                     used_cols.add(j)
 
@@ -120,7 +158,7 @@ class Tracker:
                 unused_cols = set(
                     range(0, distances.shape[1])).difference(used_cols)
                 for j in unused_cols:
-                    self.new_object(points[j])
+                    self.new_object(bev_points[j])
 
         if VERBOSE:
             print("Objects:", list(map(str, self.objects)))
@@ -177,18 +215,21 @@ class RosTracker:
 
     def bb_point_callback(self, bb_point_multiarray):
         # bb_point_multiarray may contain zero to many points,
-        # each described by 3 consecutive values.
+        # each described by 6 consecutive values.
 
-        # Extract as many point x, y and z coordinates as found:
-        nr_of_bb_points = len(bb_point_multiarray.data) // 3
+        # Extract as many point x, y and z coordinates and corresponding scales as found:
+        nr_of_bb_points = len(bb_point_multiarray.data) // 6
         self.points = []
         for i in range(nr_of_bb_points):
             self.points.append(
-                (
-                    bb_point_multiarray.data[0 + 3 * i],
-                    # bb_point_multiarray.data[1 + 3 * i],
-                    bb_point_multiarray.data[2 + 3 * i],
-                )
+                CameraPoint((
+                    bb_point_multiarray.data[0 + 6 * i],
+                    bb_point_multiarray.data[1 + 6 * i],
+                    bb_point_multiarray.data[2 + 6 * i],
+                    bb_point_multiarray.data[3 + 6 * i],
+                    bb_point_multiarray.data[4 + 6 * i],
+                    bb_point_multiarray.data[5 + 6 * i],
+                )).to_bev_point()
             )
 
         self.update_framerate()
@@ -199,16 +240,17 @@ class RosTracker:
             scaling = 1000  # From mm to m
             x = obj.x / scaling
             y = obj.y / scaling
+            height = obj.height / scaling
+            # print("s_z:", z)
+            radius = obj.radius / scaling
             v_x = x + obj.v_x / scaling * self.framerate
             v_y = y + obj.v_y / scaling * self.framerate
             self.rviz.text(obj.uid, x, y)
-            self.rviz.cylinder(obj.uid, x, y)
+            self.rviz.cylinder(obj.uid, x, y, height, radius)
             self.rviz.arrow(obj.uid, x, y, v_x, v_y)
 
         # if VERBOSE:
         #     rospy.loginfo(self.tracker.get_position_dict())
-
-
 
     def shutdown(self):
         print("Exiting...")

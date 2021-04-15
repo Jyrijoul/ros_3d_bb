@@ -230,6 +230,13 @@ class Ros_3d_bb:
 
         return point
 
+    def get_bb_scale(self, median_depth, bb_width, bb_height, bb_depth=0):
+        x_scale = bb_width / self.intrinsics.fx * median_depth
+        y_scale = bb_height / self.intrinsics.fy * median_depth
+        # TODO: Figure out how to compute the scale in the z-direction (if needed at all!).
+        z_scale = 0
+        return (x_scale, y_scale, z_scale)
+
     def bounding_box_to_coordinates(self):
         timer = Timer("bb_to_coord")
 
@@ -359,7 +366,12 @@ class Ros_3d_bb:
             print("Old:", old_medians)
             print("New:", new_medians)
         
-        return medians
+        # Added the scaling information for x and y (and also z but yet unimplemented).
+        output_with_scale = []
+        output_with_scale.extend(medians)
+        output_with_scale.extend(self.get_bb_scale(medians[2], bb_width, bb_height))
+
+        return output_with_scale
 
     def bounding_box_callback(self, bb_multiarray):
         # img_height, img_width = np.shape(self.color_image)[:2]
@@ -437,7 +449,8 @@ class Ros_3d_bb:
             )
 
         if VERBOSE:
-            rospy.loginfo("Points: " + str(self.points))
+            # Only show the coordinates, not the scaling information.
+            rospy.loginfo("Points: " + str(self.points[:3]))
 
         timer.stop()
 

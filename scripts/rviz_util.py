@@ -26,14 +26,14 @@ class RViz:
             text=text)
         self.marker_pub.publish(marker)
 
-    def cylinder(self, uid=0, x=0.0, y=0.0, z=0.5, radius=0.5, duration=1):
+    def cylinder(self, uid=0, x=0.0, y=0.0, z=1, radius=0.5, duration=1):
         uid += self.max_concurrent_objects  # For not overwriting text and/or arrows
         marker = Marker(
             type=Marker.CYLINDER,
             id=uid,
             lifetime=rospy.Duration(duration),
-            pose=Pose(Point(x, y, z), Quaternion(0, 0, 0, 1)),
-            scale=Vector3(radius, radius, 1),
+            pose=Pose(Point(x, y, z / 2), Quaternion(0, 0, 0, 1)),
+            scale=Vector3(radius, radius, z),
             header=Header(frame_id='map'),
             color=ColorRGBA(0.0, 0.0, 1.0, 0.9))
         self.marker_pub.publish(marker)
