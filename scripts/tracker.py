@@ -4,9 +4,12 @@ import rospy
 from std_msgs.msg import Int32MultiArray
 import numpy as np
 from scipy.spatial import distance
+import time
+import rviz_util
 
 
-VERBOSE = False
+VERBOSE = True
+DEBUG = False
 
 
 class DetectedObject:
@@ -17,7 +20,8 @@ class DetectedObject:
         self.v_y = v_y
         self.uid = uid
         self.disappeared = 0
-        print("Created new object:", self)
+        if DEBUG:
+            print("Created new object:", self)
 
     def __eq__(self, other):
         return self.uid == other.uid
@@ -26,13 +30,13 @@ class DetectedObject:
         return hash(self.uid)
 
     def __str__(self):
-        return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y)
+        return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y) + ", v_x: " + str(self.v_x) + ", v_y: " + str(self.v_y)
 
     def update(self, xy):
         x, y = xy
         """Updates the object's position, calculates the velocity, resets disappeared counter."""
-        self.v_x = x - self.v_x
-        self.v_y = y - self.v_y
+        self.v_x = x - self.x
+        self.v_y = y - self.y
         self.x = x
         self.y = y
         self.disappeared = 0
@@ -58,7 +62,8 @@ class Tracker:
     def get_coordinates(self):
         coordinates = []
         for detected_object in self.objects:
-            # print("Object:", detected_object)
+            if DEBUG:
+                print("Object:", detected_object)
             coordinates.append((detected_object.x, detected_object.y))
 
         return coordinates
@@ -70,20 +75,15 @@ class Tracker:
 
     def update(self, points: list):
         """Updates the positions of detected objects, add new objects and deletes old objects."""
-        print("Objects:", list(map(str, self.objects)))
-        # print("len(points):", len(points))
         if len(points) == 0:
             for detected_object in self.objects:
                 detected_object.disappeared()
                 self.delete_if_disappeared(detected_object)
         elif len(self.objects) == 0:
             for point in points:
-                # print("P:", point)
                 self.new_object(point)
         else:
-            # print("Points:", points)
             current_coordinates = self.get_coordinates()
-            # print("---")
             distances = distance.cdist(
                 np.array(current_coordinates), points, "euclidean")
 
@@ -109,11 +109,11 @@ class Tracker:
             len_cols = distances.shape[1]
 
             if len_rows > len_cols:
-                unused_rows = set(
-                    range(0, distances.shape[0])).difference(used_rows)
-                for i in unused_rows:
+                unused_rows = list(set(
+                    range(0, distances.shape[0])).difference(used_rows))
+                # print("Unused rows:", unused_rows)
+                for i in reversed(unused_rows):
                     obj = self.objects[i]
-                    print(obj, type(obj))
                     obj.has_disappeared()
                     self.delete_if_disappeared(obj)
             elif len_rows < len_cols:
@@ -121,6 +121,9 @@ class Tracker:
                     range(0, distances.shape[1])).difference(used_cols)
                 for j in unused_cols:
                     self.new_object(points[j])
+
+        if VERBOSE:
+            print("Objects:", list(map(str, self.objects)))
 
     def get_position_dict(self):
         position_dict = {}
@@ -145,6 +148,9 @@ class RosTracker:
     def __init__(self):
         self.points = []
         self.tracker = Tracker(30)
+        self.time = time.time()
+        self.framerate = 0
+        self.rviz = rviz_util.RViz()  # For handling RViz visualization
 
         # Subscribed topics
         self.bb_point_topic = "/ros_3d_bb/point"
@@ -154,8 +160,20 @@ class RosTracker:
             self.bb_point_topic, Int32MultiArray, self.bb_point_callback, queue_size=1
         )
 
+        # Published topics
+        self.points_topic = "/ros_3d_bb/"
+        self.marker_topic = "visualization_marker"
+
+        # Publishers
+        # ---
+
         if VERBOSE:
             rospy.loginfo("Subscribed to topic: " + self.bb_point_topic)
+
+    def update_framerate(self):
+        current_time = time.time()
+        self.framerate = 1 / (current_time - self.time)
+        self.time = current_time
 
     def bb_point_callback(self, bb_point_multiarray):
         # bb_point_multiarray may contain zero to many points,
@@ -173,11 +191,24 @@ class RosTracker:
                 )
             )
 
-        # print(self.points)
+        self.update_framerate()
         self.tracker.update(self.points)
 
-        if VERBOSE:
-            rospy.loginfo(self.tracker.get_position_dict())
+        detections = self.tracker.objects
+        for obj in detections:
+            scaling = 1000  # From mm to m
+            x = obj.x / scaling
+            y = obj.y / scaling
+            v_x = x + obj.v_x / scaling * self.framerate
+            v_y = y + obj.v_y / scaling * self.framerate
+            self.rviz.text(obj.uid, x, y)
+            self.rviz.cylinder(obj.uid, x, y)
+            self.rviz.arrow(obj.uid, x, y, v_x, v_y)
+
+        # if VERBOSE:
+        #     rospy.loginfo(self.tracker.get_position_dict())
+
+
 
     def shutdown(self):
         print("Exiting...")

@@ -11,8 +11,18 @@ import message_filters
 import threading
 import queue
 import time
-import pyrealsense2.pyrealsense2 as rs2
+import pyrealsense2 as rs2
 import cProfile
+
+
+"""
+This code is tested with the Intel® RealSense™ Depth Camera D435i.
+For other cameras the depth scaling may or may not need to be changed.
+If needed, change the following line:
+"depths = self.depth_image[yy, xx]" to
+"depths = self.depth_image[yy, xx] * depth_scale", 
+where "depth_scale" is the output of rs2's "get_depth_scale" function.
+"""
 
 
 # Send log to output?
@@ -176,14 +186,14 @@ class Ros_3d_bb:
             self.intrinsics.ppy = camera_info.K[5]
             self.intrinsics.fx = camera_info.K[0]
             self.intrinsics.fy = camera_info.K[4]
-            if VERBOSE:
-                print("Camera instrinsics:")
-                print(self.intrinsics)
             if camera_info.distortion_model == "plumb_bob":
                 self.intrinsics.model = rs2.distortion.brown_conrady
             elif camera_info.distortion_model == "equidistant":
                 self.intrinsics.model = rs2.distortion.kannala_brandt4
             self.intrinsics.coeffs = [i for i in camera_info.D]
+            if VERBOSE:
+                print("Camera instrinsics:")
+                print(self.intrinsics)
         except CvBridgeError as err:
             rospy.logerr(err)
 
@@ -275,9 +285,9 @@ class Ros_3d_bb:
 
             # Return the median of each axis
             old_medians = (
-                np.median(filtered_points[:, 0]),
-                np.median(filtered_points[:, 1]),
-                np.median(filtered_points[:, 2]),
+                np.nanmedian(filtered_points[:, 0]),
+                np.nanmedian(filtered_points[:, 1]),
+                np.nanmedian(filtered_points[:, 2]),
             )
             medians = old_medians
 
@@ -308,6 +318,8 @@ class Ros_3d_bb:
                 points[:, :, 0] = (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
                 points[:, :, 1] = (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
                 points[:, :, 2] = depths
+            else:
+                points = [0, 0, 0]
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
@@ -324,7 +336,7 @@ class Ros_3d_bb:
                 stop_times.append(timing)
                 start_times.append(timing)
 
-            new_medians = np.median(filtered_points_new, axis=0)
+            new_medians = np.nanmedian(filtered_points_new, axis=0)
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
