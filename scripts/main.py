@@ -26,7 +26,7 @@ where "depth_scale" is the output of rs2's "get_depth_scale" function.
 
 
 # Send log to output?
-VERBOSE = False
+VERBOSE = True
 # Calculate depth based on bounding boxes?
 calculate_bb_depth = True
 # Publish the bounding box mean point in 3D-coordinate space?
@@ -36,7 +36,7 @@ modify_color_image = False
 # Performance measurement
 measure_performance = True
 # Performance measurement in more detail
-measure_detailed_performance = True
+measure_detailed_performance = False
 # Use the optimized version? "None" to use both
 use_optimized = True
 
@@ -238,28 +238,33 @@ class Ros_3d_bb:
         return (x_scale, y_scale, z_scale)
 
     def bounding_box_to_coordinates(self):
-        timer = Timer("bb_to_coord")
+        if measure_detailed_performance:
+            timer = Timer("bb_to_coord")
 
         bb_width = self.corner_bottom_right[0] - self.corner_top_left[0]
         bb_height = self.corner_bottom_right[1] - self.corner_top_left[1]
 
-        timer.update()
+        if measure_detailed_performance:
+            timer.update()
 
         stride_x = 20
         stride_y = 20
 
-        timer.update()
+        if measure_detailed_performance:
+            timer.update()
 
         times_x = int(np.ceil(bb_width / stride_x))
         times_y = int(np.ceil(bb_height / stride_y))
 
-        timer.update()
+        if measure_detailed_performance:
+            timer.update()
 
         # Offset is needed to center the samples.
         offset_x = int((bb_width - (times_x - 1) * stride_x - 1) // 2)
         offset_y = int((bb_height - (times_y - 1) * stride_y - 1) // 2)
 
-        timer.stop()
+        if measure_detailed_performance:
+            timer.stop()
 
         # Original version
         if not use_optimized:
@@ -325,18 +330,20 @@ class Ros_3d_bb:
                 points[:, :, 0] = (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
                 points[:, :, 1] = (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
                 points[:, :, 2] = depths
-            else:
-                points = [0, 0, 0]
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
 
+            print(points)
+
             # Only the points with non-zero depth (new)
             filtered_points_new = points[
                 np.where(points[:, :, 2] > 0)
             ]
+
+            print(filtered_points_new)
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
@@ -382,12 +389,15 @@ class Ros_3d_bb:
         # each described by 4 consecutive values.
 
         # Extract as many bounding box corner coordinates as found:
-        timer = Timer("bb_callback")
+
+        if measure_detailed_performance:
+            timer = Timer("bb_callback")
 
         nr_of_bounding_boxes = len(bb_multiarray.data) // 4
         self.points = {}
 
-        timer.update()
+        if measure_detailed_performance:
+            timer.update()
 
         for i in range(nr_of_bounding_boxes):
             self.corner_top_left = (
@@ -399,14 +409,16 @@ class Ros_3d_bb:
                 bb_multiarray.data[3 + 4 * i],
             )
 
-            timer.update()
+            if measure_detailed_performance:
+                timer.update()
 
             # Find the x, y and z (in mm) based on the bounding box
             point = self.bounding_box_to_coordinates()
             self.points[(self.corner_top_left,
                          self.corner_bottom_right)] = point
-
-            timer.update()
+            
+            if measure_detailed_performance:
+                timer.update()
             
             # Project the point with the mean x, y, z back into a pixel to display it
             # Can be disables for performance reasons:
@@ -450,9 +462,10 @@ class Ros_3d_bb:
 
         if VERBOSE:
             # Only show the coordinates, not the scaling information.
-            rospy.loginfo("Points: " + str(self.points[:3]))
+            rospy.loginfo("Points: " + str(self.points))
 
-        timer.stop()
+        if measure_detailed_performance:
+            timer.stop()
 
     def depths_to_image(self):
         # print(self.depths.keys(), "len:", len(self.depths.keys()))
@@ -500,7 +513,7 @@ class Ros_3d_bb:
             timing_stop = time.perf_counter()
             timing = timing_stop - timing_start
             self.timings.append(timing)
-        rospy.loginfo("Time elapsed:" + str(timing * 1000) + " ms")
+            rospy.loginfo("Time elapsed:" + str(timing * 1000) + " ms")
 
         # Additional processing for visualization
         depth_image = cv2.normalize(

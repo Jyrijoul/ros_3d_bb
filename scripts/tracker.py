@@ -6,6 +6,7 @@ import numpy as np
 from scipy.spatial import distance
 import time
 import rviz_util
+import predictor
 
 
 VERBOSE = True
@@ -185,7 +186,9 @@ class Tracker:
 class RosTracker:
     def __init__(self):
         self.points = []
-        self.tracker = Tracker(30)
+        self.max_frames_disappeared = 30
+        self.tracker = Tracker(self.max_frames_disappeared)
+        self.predictor = predictor.Predictor(self.tracker, 0.4)
         self.time = time.time()
         self.framerate = 0
         self.rviz = rviz_util.RViz()  # For handling RViz visualization
@@ -234,8 +237,11 @@ class RosTracker:
 
         self.update_framerate()
         self.tracker.update(self.points)
-
+        self.predictor.update()
+        self.predictor.predict(self.framerate * 2)
         detections = self.tracker.objects
+
+        # Visualization
         for obj in detections:
             scaling = 1000  # From mm to m
             x = obj.x / scaling
@@ -245,9 +251,16 @@ class RosTracker:
             radius = obj.radius / scaling
             v_x = x + obj.v_x / scaling * self.framerate
             v_y = y + obj.v_y / scaling * self.framerate
-            self.rviz.text(obj.uid, x, y)
-            self.rviz.cylinder(obj.uid, x, y, height, radius)
-            self.rviz.arrow(obj.uid, x, y, v_x, v_y)
+            duration = self.max_frames_disappeared / self.framerate
+            # Data from the tracker
+            self.rviz.text(obj.uid, x, y, duration=duration)
+            self.rviz.cylinder(obj.uid, x, y, height, radius, duration=duration, alpha=0.5)
+            self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+            # Data from the predictor
+            predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]  # Only the x and y
+            predicted_x /= scaling
+            predicted_y /= scaling
+            self.rviz.arrow(obj.uid + 1000, x, y, predicted_x, predicted_y, duration=duration, r=0, g=1, b=0)
 
         # if VERBOSE:
         #     rospy.loginfo(self.tracker.get_position_dict())
