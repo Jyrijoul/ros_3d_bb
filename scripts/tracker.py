@@ -7,10 +7,13 @@ from scipy.spatial import distance
 import time
 import rviz_util
 import predictor
+from timer import Timer
+from geometry_msgs.msg import Pose
 
 
 VERBOSE = True
 DEBUG = False
+TIME = True
 
 
 class CameraPoint:
@@ -29,8 +32,9 @@ class CameraPoint:
 
 class BevPoint:
     def __init__(self, x, y, z, s_x, s_y, s_z):
-        self.x = x
-        self.y = y
+        # NB! x and y are swapped to align correctly to ROS' coordinate system!
+        self.x = y
+        self.y = -x
         self.z = z
         self.s_x = s_x
         self.s_y = s_y
@@ -48,7 +52,7 @@ class DetectedObject:
         self.x = bev_point.x
         self.y = bev_point.y
         self.z = bev_point.z
-        self.radius = bev_point.s_x
+        self.diameter = bev_point.s_x
         self.height = bev_point.s_z
 
         self.v_x = 0
@@ -76,7 +80,7 @@ class DetectedObject:
         self.x = x
         self.y = y
         self.z = bev_point.z
-        self.radius = bev_point.s_x
+        self.diameter = bev_point.s_x
         self.height = bev_point.s_z
         self.disappeared = 0
 
@@ -192,6 +196,19 @@ class RosTracker:
         self.time = time.time()
         self.framerate = 0
         self.rviz = rviz_util.RViz()  # For handling RViz visualization
+        pose_world = Pose()
+        pose_world.orientation.w = 1
+        self.tf_publisher_world = rviz_util.TFPublisher(pose_world, "world", "odom")
+        pose_realsense = Pose()
+        pose_realsense.orientation.w = 1
+        pose_realsense.position.x = 0.17
+        pose_realsense.position.z = 0.20
+        self.tf_publisher = rviz_util.TFPublisher(pose_realsense)
+        
+        
+
+        if TIME:
+            self.timers = []
 
         # Subscribed topics
         self.bb_point_topic = "/ros_3d_bb/point"
@@ -217,6 +234,9 @@ class RosTracker:
         self.time = current_time
 
     def bb_point_callback(self, bb_point_multiarray):
+        if TIME:
+            timer = Timer("update")
+            self.timers.append(timer)
         # bb_point_multiarray may contain zero to many points,
         # each described by 6 consecutive values.
 
@@ -235,10 +255,29 @@ class RosTracker:
                 )).to_bev_point()
             )
 
+        if TIME:
+            timer.update()
+
         self.update_framerate()
+
+        if TIME:
+            timer.update()
+
         self.tracker.update(self.points)
+
+        if TIME:
+            timer.update()
+        
         self.predictor.update()
+
+        if TIME:
+            timer.update()
+        
         self.predictor.predict(self.framerate * 2)
+
+        if TIME:
+            timer.update()
+        
         detections = self.tracker.objects
 
         # Visualization
@@ -247,26 +286,36 @@ class RosTracker:
             x = obj.x / scaling
             y = obj.y / scaling
             height = obj.height / scaling
-            # print("s_z:", z)
-            radius = obj.radius / scaling
+            diameter = obj.diameter / scaling
             v_x = x + obj.v_x / scaling * self.framerate
             v_y = y + obj.v_y / scaling * self.framerate
             duration = self.max_frames_disappeared / self.framerate
-            # Data from the tracker
+            # Send data from the tracker
             self.rviz.text(obj.uid, x, y, duration=duration)
-            self.rviz.cylinder(obj.uid, x, y, height, radius, duration=duration, alpha=0.5)
+            self.rviz.cylinder(obj.uid, x, y, height, diameter,
+                               duration=duration, alpha=0.5)
             self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
-            # Data from the predictor
-            predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]  # Only the x and y
+            # Send data from the predictor
+            # Only the x and y
+            predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
             predicted_x /= scaling
             predicted_y /= scaling
-            self.rviz.arrow(obj.uid + 1000, x, y, predicted_x, predicted_y, duration=duration, r=0, g=1, b=0)
+            self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                            predicted_y, duration=duration, r=0, g=1, b=0)
+        self.tf_publisher.publish()
+        self.tf_publisher_world.publish()
+        self.rviz.publish()
 
-        # if VERBOSE:
-        #     rospy.loginfo(self.tracker.get_position_dict())
+        if TIME:
+            timer.stop()
 
     def shutdown(self):
-        print("Exiting...")
+        if TIME:
+            # for timer in self.timers:
+            #     print(timer)
+            averages = Timer.average_times(self.timers)
+            rospy.loginfo("Average timings (in ms): " + str(averages))
+        rospy.loginfo("Exiting...")
 
 
 def main():

@@ -112,17 +112,17 @@ class Viewer:
 
     def process_bb_point_multiarray(self, bb_point_multiarray):
         # bb_point_multiarray may contain zero to many points,
-        # each described by 3 consecutive values.
+        # each described by 6 consecutive values.
 
         # Extract as many point x, y and z coordinates as found:
-        nr_of_bb_points = len(bb_point_multiarray.data) // 3
+        nr_of_bb_points = len(bb_point_multiarray.data) // 6
         self.points = []
         for i in range(nr_of_bb_points):
             self.points.append(
                 (
-                    bb_point_multiarray.data[0 + 3 * i],
-                    bb_point_multiarray.data[1 + 3 * i],
-                    bb_point_multiarray.data[2 + 3 * i],
+                    bb_point_multiarray.data[0 + 6 * i],
+                    bb_point_multiarray.data[1 + 6 * i],
+                    bb_point_multiarray.data[2 + 6 * i],
                 )
             )
 

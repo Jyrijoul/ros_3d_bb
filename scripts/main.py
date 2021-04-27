@@ -13,6 +13,8 @@ import queue
 import time
 import pyrealsense2 as rs2
 import cProfile
+from timer import Timer
+import jax.numpy as jnp
 
 
 """
@@ -41,32 +43,6 @@ measure_detailed_performance = False
 use_optimized = True
 
 
-class Timer:
-    def __init__(self, name, in_ms=True):
-        self.name = name
-        self.in_ms = in_ms
-        self.times = [time.perf_counter()]
-
-    def update(self):
-        self.times.append(time.perf_counter())
-
-    def stop(self, print_output=True):
-        self.times.append(time.perf_counter())
-
-        output = []
-        for i in range(1, len(self.times)):
-            if not self.in_ms:
-                output.append(self.times[i] - self.times[i - 1])
-            else:
-                output.append((self.times[i] - self.times[i - 1]) * 1000)
-
-        if print_output:
-            print("Times (" + self.name + "):")
-            print(output)
-
-        return output
-
-
 class Ros_3d_bb:
     def __init__(self):
         # Variables to hold both the current color and depth image + bounding box etc
@@ -87,6 +63,11 @@ class Ros_3d_bb:
         # self.camera_info_topic = "/camera/color/camera_info"
         self.color_image_topic = "/camera/color/image_raw"
         self.depth_image_topic = "/camera/aligned_depth_to_color/image_raw"
+        """For simulation use the following:"""
+        # For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"
+        self.camera_info_topic = "/realsense/color/camera_info"
+        self.color_image_topic = "/realsense/color/image_raw"
+        self.depth_image_topic = "/realsense/depth/image_rect_raw"
         self.bb_topic = "/yolo_bounding_box"
 
         # Published topics
@@ -194,6 +175,11 @@ class Ros_3d_bb:
             if VERBOSE:
                 print("Camera instrinsics:")
                 print(self.intrinsics)
+
+                """
+                With the 435i it should be something like:
+                640x480  p[319.199 242.08]  f[614.686 614.842]  Brown Conrady [0 0 0 0 0]
+                """
         except CvBridgeError as err:
             rospy.logerr(err)
 
@@ -212,9 +198,18 @@ class Ros_3d_bb:
 
     def depth_callback(self, depth_image):
         try:
+            """Real camera:"""
+            # self.depth_image = self.bridge.imgmsg_to_cv2(
+                # depth_image, depth_image.encoding
+            # )
+
+            """Simulation:"""
             self.depth_image = self.bridge.imgmsg_to_cv2(
                 depth_image, depth_image.encoding
             )
+            self.depth_image *= 1000
+            self.depth_image = self.depth_image.astype(np.uint16)
+            print(np.shape(self.depth_image))
         except CvBridgeError as err:
             rospy.logerr(err)
 
@@ -284,12 +279,13 @@ class Ros_3d_bb:
                 ):
                     point = self.pixel_to_point(x, y)
                     bb_points[
-                        y - self.corner_top_left[1], x - self.corner_top_left[0]
+                        y - self.corner_top_left[1], x -
+                        self.corner_top_left[0]
                     ] = point
                     # Display a little circle on the RGB image where each sample is located
                     circle_color = (0, 0, 255) if point[2] > 0 else (255, 0, 0)
                     cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
-            
+
             # Only the points with non-zero depth
             filtered_points = bb_points[
                 np.where(bb_points[:, :, 2] > 0)
@@ -327,8 +323,10 @@ class Ros_3d_bb:
             # We can only calculate the points if we know the camera's parameters.
             if self.intrinsics:
                 # https://github.com/IntelRealSense/librealsense/blob/v2.24.0/wrappers/python/examples/box_dimensioner_multicam/helper_functions.py#L121-L147
-                points[:, :, 0] = (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
-                points[:, :, 1] = (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
+                points[:, :, 0] = (xx - self.intrinsics.ppx) / \
+                    self.intrinsics.fx * depths
+                points[:, :, 1] = (yy - self.intrinsics.ppy) / \
+                    self.intrinsics.fy * depths
                 points[:, :, 2] = depths
 
             if measure_detailed_performance:
@@ -336,21 +334,21 @@ class Ros_3d_bb:
                 stop_times.append(timing)
                 start_times.append(timing)
 
-            print(points)
-
             # Only the points with non-zero depth (new)
             filtered_points_new = points[
                 np.where(points[:, :, 2] > 0)
             ]
-
-            print(filtered_points_new)
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
 
-            new_medians = np.nanmedian(filtered_points_new, axis=0)
+            # print(np.shape(filtered_points_new))
+            if np.shape(filtered_points_new)[0] > 0:
+                new_medians = np.nanmedian(filtered_points_new, axis=0)
+            else:
+                new_medians = (0, 0, 0)
 
             if measure_detailed_performance:
                 timing = time.perf_counter()
@@ -367,23 +365,24 @@ class Ros_3d_bb:
                 stop_times.append(timing)
                 timings = np.asarray(stop_times) - np.asarray(start_times)
                 print("Timings:", timings * 1000, " ms")
-        
+
         if use_optimized is None:
             print("Medians:")
             print("Old:", old_medians)
             print("New:", new_medians)
-        
+
         # Added the scaling information for x and y (and also z but yet unimplemented).
         output_with_scale = []
         output_with_scale.extend(medians)
-        output_with_scale.extend(self.get_bb_scale(medians[2], bb_width, bb_height))
+        output_with_scale.extend(self.get_bb_scale(
+            medians[2], bb_width, bb_height))
 
         return output_with_scale
 
     def bounding_box_callback(self, bb_multiarray):
         # img_height, img_width = np.shape(self.color_image)[:2]
         # if VERBOSE:
-            # print(img_height, img_width)
+        # print(img_height, img_width)
 
         # bb_multiarray may contain zero to many bounding boxes,
         # each described by 4 consecutive values.
@@ -416,10 +415,10 @@ class Ros_3d_bb:
             point = self.bounding_box_to_coordinates()
             self.points[(self.corner_top_left,
                          self.corner_bottom_right)] = point
-            
+
             if measure_detailed_performance:
                 timer.update()
-            
+
             # Project the point with the mean x, y, z back into a pixel to display it
             # Can be disables for performance reasons:
             if modify_color_image:
@@ -528,7 +527,9 @@ class Ros_3d_bb:
         if publishing_bb_point:
             points = []
             for point in self.points.values():
-                points.extend(list(map(round, point)))
+                # Only publish valid points.
+                if not point == (0, 0, 0, 0, 0, 0):
+                    points.extend(list(map(round, point)))
             self.publish_bb_point(points)
 
     def shutdown(self):
