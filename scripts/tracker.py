@@ -8,7 +8,10 @@ import time
 import rviz_util
 import predictor
 from timer import Timer
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Point, Vector3, Quaternion, PoseStamped, Vector3Stamped
+from ros_3d_bb.msg import BoundingBox3D, BoundingBox3DArray
+import tf2_ros
+import tf2_geometry_msgs
 
 
 VERBOSE = True
@@ -16,49 +19,33 @@ DEBUG = False
 TIME = True
 
 
-class CameraPoint:
-    def __init__(self, point_from_camera):
-        self.camera_x = point_from_camera[0]
-        self.camera_y = point_from_camera[1]
-        self.camera_z = point_from_camera[2]
-        self.camera_s_x = point_from_camera[3]
-        self.camera_s_y = point_from_camera[4]
-        self.camera_s_z = point_from_camera[5]
-
-    def to_bev_point(self):
-        return BevPoint(self.camera_x, self.camera_z, self.camera_y,
-                        self.camera_s_x, self.camera_s_z, self.camera_s_y)
-
-
-class BevPoint:
-    def __init__(self, x, y, z, s_x, s_y, s_z):
-        # NB! x and y are swapped to align correctly to ROS' coordinate system!
-        self.x = y
-        self.y = -x
-        self.z = z
-        self.s_x = s_x
-        self.s_y = s_y
-        self.s_z = s_z
-
-    def to_camera_point(self):
-        return CameraPoint((self.x, self.z, self.y,
-                            self.s_x, self.s_z, self.s_y))
+class WorldPoint:
+    def __init__(self, x=0, y=0, z=0, s_x=0, s_y=0, s_z=0, bounding_box=None):
+        if not bounding_box:
+            self.x = x
+            self.y = y
+            self.z = z
+            self.s_x = s_x
+            self.s_y = s_y
+            self.s_z = s_z
+        else:
+            self.x = bounding_box.center.position.x
+            self.y = bounding_box.center.position.y
+            self.z = bounding_box.center.position.z
+            self.s_x = bounding_box.size.x
+            self.s_y = bounding_box.size.y
+            self.s_z = bounding_box.size.z
 
 
 class DetectedObject:
-    def __init__(self, uid, bev_point=None, camera_point=None):
-        if camera_point and not bev_point:
-            bev_point = camera_point.to_bev_point()
-        self.x = bev_point.x
-        self.y = bev_point.y
-        self.z = bev_point.z
-        self.diameter = bev_point.s_x
-        self.height = bev_point.s_z
+    def __init__(self, uid, world_point):
+        # Set initial values in order to call self.update()
+        self.x = world_point.x
+        self.y = world_point.y
+        
+        self.update(world_point)
 
-        self.v_x = 0
-        self.v_y = 0
         self.uid = uid
-        self.disappeared = 0
 
         if DEBUG:
             print("Created new object:", self)
@@ -72,16 +59,16 @@ class DetectedObject:
     def __str__(self):
         return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y) + ", v_x: " + str(self.v_x) + ", v_y: " + str(self.v_y)
 
-    def update(self, bev_point):
+    def update(self, world_point):
         """Updates the object's position, scale, calculates the velocity, resets disappeared counter."""
-        x, y = bev_point.x, bev_point.y
+        x, y = world_point.x, world_point.y
         self.v_x = x - self.x
         self.v_y = y - self.y
         self.x = x
         self.y = y
-        self.z = bev_point.z
-        self.diameter = bev_point.s_x
-        self.height = bev_point.s_z
+        self.z = world_point.z
+        self.diameter = world_point.s_x
+        self.height = world_point.s_y
         self.disappeared = 0
 
     def has_disappeared(self):
@@ -91,16 +78,16 @@ class DetectedObject:
 class Tracker:
     def __init__(self, max_frames_disappeared=30):
         self.max_frames_disappeared = max_frames_disappeared
-        self.next_uid = 0
+        self.current_uid = 0
 
         self.objects = []
 
-    def new_object(self, bev_point):
+    def new_object(self, world_point):
         """Register a newly detected object."""
-        self.objects.append(DetectedObject(self.next_uid, bev_point))
+        self.objects.append(DetectedObject(self.current_uid, world_point))
 
         # Increment the UID.
-        self.next_uid += 1
+        self.current_uid += 1
 
     def get_coordinates(self):
         coordinates = []
@@ -116,19 +103,19 @@ class Tracker:
         if detected_object.disappeared >= self.max_frames_disappeared:
             self.objects.remove(detected_object)
 
-    def update(self, bev_points: list):
+    def update(self, world_points: list):
         """Updates the positions of detected objects, add new objects and deletes old objects."""
-        if len(bev_points) == 0:
+        if len(world_points) == 0:
             for detected_object in self.objects:
                 detected_object.disappeared()
                 self.delete_if_disappeared(detected_object)
         elif len(self.objects) == 0:
-            for bev_point in bev_points:
-                self.new_object(bev_point)
+            for world_point in world_points:
+                self.new_object(world_point)
         else:
             current_coordinates = self.get_coordinates()
             distances = distance.cdist(
-                np.array(current_coordinates), [(o.x, o.y) for o in bev_points], "euclidean")
+                np.array(current_coordinates), [(o.x, o.y) for o in world_points], "euclidean")
 
             # The following part is from the following article:
             # https://www.pyimagesearch.com/2018/07/23/simple-object-tracking-with-opencv/
@@ -144,7 +131,7 @@ class Tracker:
                 if i in used_rows or j in used_cols:
                     continue
                 else:
-                    self.objects[i].update(bev_points[j])
+                    self.objects[i].update(world_points[j])
                     used_rows.add(i)
                     used_cols.add(j)
 
@@ -163,7 +150,7 @@ class Tracker:
                 unused_cols = set(
                     range(0, distances.shape[1])).difference(used_cols)
                 for j in unused_cols:
-                    self.new_object(bev_points[j])
+                    self.new_object(world_points[j])
 
         if VERBOSE:
             print("Objects:", list(map(str, self.objects)))
@@ -195,27 +182,36 @@ class RosTracker:
         self.predictor = predictor.Predictor(self.tracker, 0.4)
         self.time = time.time()
         self.framerate = 0
-        self.rviz = rviz_util.RViz()  # For handling RViz visualization
+        # For handling RViz visualization
+        self.rviz = rviz_util.RViz(frame_id="world")
+
+        self.frame_odom_id = "odom"
         pose_world = Pose()
         pose_world.orientation.w = 1
-        self.tf_publisher_world = rviz_util.TFPublisher(pose_world, "world", "odom")
+        self.tf_publisher_world = rviz_util.TFPublisher(
+            pose_world, "world", "odom")
+        self.frame_realsense_id = "realsense_mount"
         pose_realsense = Pose()
-        pose_realsense.orientation.w = 1
+        # pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
+        pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
+        # pose_realsense.orientation.w = 1
         pose_realsense.position.x = 0.17
         pose_realsense.position.z = 0.20
-        self.tf_publisher = rviz_util.TFPublisher(pose_realsense)
-        
-        
+        self.tf_publisher = rviz_util.TFPublisher(
+            pose_realsense, "base_link", "realsense_mount")
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         if TIME:
             self.timers = []
 
         # Subscribed topics
-        self.bb_point_topic = "/ros_3d_bb/point"
+        self.bb_point_topic = "/ros_3d_bb/bb_3d"
 
         # Subscribers
         self.bb_point_sub = rospy.Subscriber(
-            self.bb_point_topic, Int32MultiArray, self.bb_point_callback, queue_size=1
+            self.bb_point_topic, BoundingBox3DArray, self.bb_callback, queue_size=1
         )
 
         # Published topics
@@ -233,26 +229,40 @@ class RosTracker:
         self.framerate = 1 / (current_time - self.time)
         self.time = current_time
 
-    def bb_point_callback(self, bb_point_multiarray):
+    def bb_callback(self, bb_array):
         if TIME:
             timer = Timer("update")
             self.timers.append(timer)
-        # bb_point_multiarray may contain zero to many points,
-        # each described by 6 consecutive values.
 
-        # Extract as many point x, y and z coordinates and corresponding scales as found:
-        nr_of_bb_points = len(bb_point_multiarray.data) // 6
+        self.tf_publisher.publish()
+        self.tf_publisher_world.publish()
+
+        trans = self.tf_buffer.lookup_transform(
+            "world", self.frame_realsense_id, rospy.Time()
+        )
+        # print(trans)
+
         self.points = []
-        for i in range(nr_of_bb_points):
+        for bounding_box in bb_array.boxes:
+            # self.points.append(
+            #     WorldPoint(bounding_box=bounding_box)
+            # )
+            pose_stamped = PoseStamped(
+                bounding_box.header, bounding_box.center)
+            vector3_stamped = Vector3Stamped(
+                bounding_box.header, bounding_box.size)
+            pose_transformed = tf2_geometry_msgs.do_transform_pose(
+                pose_stamped, trans)
+            # vector3_transformed = tf2_geometry_msgs.do_transform_vector3(
+            #     vector3_stamped, trans)
+
+            # new_bb = BoundingBox3D(
+            #     bounding_box.header, pose_transformed.pose, vector3_transformed.vector)
+            new_bb = BoundingBox3D(
+                bounding_box.header, pose_transformed.pose, bounding_box.size)
+            print(new_bb)
             self.points.append(
-                CameraPoint((
-                    bb_point_multiarray.data[0 + 6 * i],
-                    bb_point_multiarray.data[1 + 6 * i],
-                    bb_point_multiarray.data[2 + 6 * i],
-                    bb_point_multiarray.data[3 + 6 * i],
-                    bb_point_multiarray.data[4 + 6 * i],
-                    bb_point_multiarray.data[5 + 6 * i],
-                )).to_bev_point()
+                WorldPoint(bounding_box=new_bb)
             )
 
         if TIME:
@@ -267,26 +277,28 @@ class RosTracker:
 
         if TIME:
             timer.update()
-        
+
         self.predictor.update()
 
         if TIME:
             timer.update()
-        
+
         self.predictor.predict(self.framerate * 2)
 
         if TIME:
             timer.update()
-        
+
         detections = self.tracker.objects
 
         # Visualization
         for obj in detections:
-            scaling = 1000  # From mm to m
+            # scaling = 1000  # From mm to m
+            scaling = 1
             x = obj.x / scaling
             y = obj.y / scaling
             height = obj.height / scaling
             diameter = obj.diameter / scaling
+            print("Diameter:", diameter)
             v_x = x + obj.v_x / scaling * self.framerate
             v_y = y + obj.v_y / scaling * self.framerate
             duration = self.max_frames_disappeared / self.framerate
@@ -302,8 +314,7 @@ class RosTracker:
             predicted_y /= scaling
             self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
                             predicted_y, duration=duration, r=0, g=1, b=0)
-        self.tf_publisher.publish()
-        self.tf_publisher_world.publish()
+
         self.rviz.publish()
 
         if TIME:

@@ -37,14 +37,16 @@ class Timer:
         nr_of_timers = len(timers)
         nr_of_times = len(timers[0].timings)
         averages = [0] * nr_of_times
-        if append_total:
-            averages.append(0)
         
-        for timer in timers:
-            for i in range(nr_of_times):
-                averages[i] += timer.timings[i] / nr_of_timers
-
+        if nr_of_times > 0:
             if append_total:
-                averages[i + 1] += timer.total / nr_of_timers
+                averages.append(0)
+            
+            for timer in timers:
+                for i in range(nr_of_times):
+                    averages[i] += timer.timings[i] / nr_of_timers
+
+                if append_total:
+                    averages[i + 1] += timer.total / nr_of_timers
 
         return averages

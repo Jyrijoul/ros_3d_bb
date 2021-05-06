@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-
 import rospy
 import sys
 import numpy as np
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
-from std_msgs.msg import Int32MultiArray, Float64MultiArray
+from std_msgs.msg import Header, Int32MultiArray, Float64MultiArray
 from sensor_msgs.msg import Image, CameraInfo
+from ros_3d_bb.msg import BoundingBox3D, BoundingBox3DArray
+from geometry_msgs.msg import Pose, Point, Vector3, Quaternion
 import message_filters
 import threading
 import queue
@@ -22,7 +23,7 @@ This code is tested with the Intel® RealSense™ Depth Camera D435i.
 For other cameras the depth scaling may or may not need to be changed.
 If needed, change the following line:
 "depths = self.depth_image[yy, xx]" to
-"depths = self.depth_image[yy, xx] * depth_scale", 
+"depths = self.depth_image[yy, xx] * depth_scale",
 where "depth_scale" is the output of rs2's "get_depth_scale" function.
 """
 
@@ -32,7 +33,7 @@ VERBOSE = True
 # Calculate depth based on bounding boxes?
 calculate_bb_depth = True
 # Publish the bounding box mean point in 3D-coordinate space?
-publishing_bb_point = True
+is_publishing_bb = True
 # Modify the color image to show samples, bb corners and the calculated point?
 modify_color_image = False
 # Performance measurement
@@ -52,7 +53,8 @@ class Ros_3d_bb:
         self.corner_top_left = 0
         self.corner_bottom_right = 0
         self.depths = {}
-        self.coordinates = (0, 0, 0)
+        self.depth_scale = 0.001
+        self.frame_id = "realsense_mount"
 
         if measure_performance:
             self.timings = []
@@ -74,8 +76,8 @@ class Ros_3d_bb:
         self.raw_image_out_topic = "/ros_3d_bb/raw"
         self.color_image_out_topic = "/ros_3d_bb/color"
         self.depth_image_out_topic = "/ros_3d_bb/depth"
-        if publishing_bb_point:
-            self.bb_point_out_topic = "/ros_3d_bb/point"
+        if is_publishing_bb:
+            self.bb_3d_out_topic = "/ros_3d_bb/bb_3d"
 
         # For matching different topics' messages based on timestamps:
         self.max_time_difference = 0.1
@@ -105,9 +107,9 @@ class Ros_3d_bb:
         self.depth_out_pub = rospy.Publisher(
             self.depth_image_out_topic, Image, queue_size=1
         )
-        if publishing_bb_point:
-            self.bb_point_out_pub = rospy.Publisher(
-                self.bb_point_out_topic, Int32MultiArray, queue_size=1
+        if is_publishing_bb:
+            self.bb_3d_out_pub = rospy.Publisher(
+                self.bb_3d_out_topic, BoundingBox3DArray, queue_size=1
             )
 
     def start_subscribing(self):
@@ -200,7 +202,7 @@ class Ros_3d_bb:
         try:
             """Real camera:"""
             # self.depth_image = self.bridge.imgmsg_to_cv2(
-                # depth_image, depth_image.encoding
+            # depth_image, depth_image.encoding
             # )
 
             """Simulation:"""
@@ -215,7 +217,8 @@ class Ros_3d_bb:
 
     def pixel_to_point(self, x, y):
         if self.intrinsics:
-            depth = self.depth_image[y, x]
+            # Important! Scaling by a factor of 0.001 so the results are in meters, not mm!
+            depth = self.depth_image[y, x] * self.depth_scale
             point = rs2.rs2_deproject_pixel_to_point(
                 self.intrinsics, [x, y], depth)
         else:
@@ -312,7 +315,8 @@ class Ros_3d_bb:
             y_range = np.arange(
                 self.corner_top_left[1] + offset_y, self.corner_bottom_right[1], stride_y)
             xx, yy = np.meshgrid(x_range, y_range)
-            depths = self.depth_image[yy, xx]
+            # Important! Scaling by a factor of 0.001 so the results are in meters, not mm!
+            depths = self.depth_image[yy, xx] * self.depth_scale
             points = np.zeros((times_y, times_x, 3))
 
             if measure_detailed_performance:
@@ -495,10 +499,28 @@ class Ros_3d_bb:
     def publish_depth_image(self, image):
         self.depth_out_pub.publish(self.bridge.cv2_to_imgmsg(image, "16UC1"))
 
-    def publish_bb_point(self, points_1d_array):
-        message = Int32MultiArray()
-        message.data = points_1d_array
-        self.bb_point_out_pub.publish(message)
+    def publish_bb_3d(self):
+        bb_array = BoundingBox3DArray()
+        stamp = rospy.Time.now()
+        frame_id = self.frame_id
+
+        for point in self.points.values():
+            # Only publish valid points.
+            if not point == (0, 0, 0, 0, 0, 0):
+                bb_array.boxes.append(BoundingBox3D(
+                    header=Header(stamp=stamp, frame_id=frame_id),
+                    center=Pose(
+                        Point(
+                            x=point[0],
+                            y=point[1],
+                            z=point[2]),
+                        Quaternion(0, 0, 0, 1)),
+                    size=Vector3(
+                        point[3],
+                        point[4],
+                        point[5])))
+
+        self.bb_3d_out_pub.publish(bb_array)
 
     def processing(self, color_image, depth_image, bb_multiarray):
         self.color_callback(color_image)
@@ -524,13 +546,8 @@ class Ros_3d_bb:
         self.publish_color_image(self.color_image)
         self.publish_depth_image(depth_image)
 
-        if publishing_bb_point:
-            points = []
-            for point in self.points.values():
-                # Only publish valid points.
-                if not point == (0, 0, 0, 0, 0, 0):
-                    points.extend(list(map(round, point)))
-            self.publish_bb_point(points)
+        if is_publishing_bb:
+            self.publish_bb_3d()
 
     def shutdown(self):
         if len(self.timings) != 0:
