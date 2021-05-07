@@ -15,7 +15,7 @@ import tf2_geometry_msgs
 
 
 VERBOSE = True
-DEBUG = False
+DEBUG = True
 TIME = True
 
 
@@ -64,7 +64,13 @@ class DetectedObject:
         return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y) + ", v_x: " + str(self.v_x) + ", v_y: " + str(self.v_y)
 
     def update(self, bounding_box):
-        """Updates the object's position, scale, calculates the velocity, resets disappeared counter."""
+        """Updates the object's position, scale, calculates the velocity, resets disappeared counter.
+
+        Parameters
+        ----------
+        bounding_box : BoundingBox
+            A bounding box with at least x, y, z, size_x and size_y attributes.
+        """
         x, y = bounding_box.x, bounding_box.y
         self.v_x = x - self.x
         self.v_y = y - self.y
@@ -80,9 +86,24 @@ class DetectedObject:
 
 
 class Tracker:
+    """A simple tracker based on the changes of the objects' positions
+
+    Call update() first and then get the list of current objects
+    using the attribute "objects".
+    
+    Attributes
+    ----------
+    objects : list
+        All currently tracked objects of the class DetectedObject
+
+    Methods
+    -------
+    update(bounding_boxes: list)
+        Updates all the objects based on the detected bounding boxes.
+    """
     def __init__(self, max_frames_disappeared=30, starting_id=0):
         """Initializes the tracker
-        
+
         An optional disappearance threshold and starting ID for detections can be provided
         """
 
@@ -92,7 +113,8 @@ class Tracker:
         self.objects = []
 
     def new_object(self, bounding_box):
-        """Register a newly detected object."""
+        """Registers a newly detected object."""
+        
         self.objects.append(DetectedObject(self.current_uid, bounding_box))
 
         # Increment the UID for the next detected object.
@@ -100,6 +122,7 @@ class Tracker:
 
     def get_coordinates(self):
         """Returns coordinates of detected objects in a Python list"""
+        
         # This can possibly be improved a bit with Numpy
         coordinates = []
         for detected_object in self.objects:
@@ -110,14 +133,26 @@ class Tracker:
         return coordinates
 
     def delete_if_disappeared(self, detected_object):
-        """Deletes the long-disappeared objects (when time disappeared >= max_frames_disappeared)"""
-        
+        """Deletes the long-disappeared objects (when time disappeared >= max_frames_disappeared)
+
+
+        Parameters
+        ----------
+        detected_object : DetectedObject
+            An object whose disappearance duration is going to be checked.
+        """
         if detected_object.disappeared >= self.max_frames_disappeared:
             self.objects.remove(detected_object)
 
     def update(self, bounding_boxes: list):
-        """Updates the positions of detected objects, add new objects and deletes long-disappeared objects."""
-        
+        """Updates the positions of detected objects, adds new objects and deletes long-disappeared objects.
+
+        Parameters
+        ----------
+        bounding_boxes : list
+            Detected bounding boxes of type BoundingBox3D (custom ROS message)
+        """
+
         # If there are no detections, all of the previous objects have disappeared.
         if len(bounding_boxes) == 0:
             for detected_object in self.objects:
@@ -188,6 +223,14 @@ class Tracker:
             rospy.loginfo("Objects: " + str(list(map(str, self.objects))))
 
     def get_position_dict(self):
+        """Returns a dictionary of current objects' positions.
+
+        Returns
+        -------
+        dict
+            k: object's UID
+            v: object's position (x and y)
+        """
         position_dict = {}
 
         for detected_object in self.objects:
@@ -197,6 +240,15 @@ class Tracker:
         return position_dict
 
     def get_velocity_dict(self):
+        """Returns a dictionary of current objects' velocities.
+
+        Returns
+        -------
+        dict
+            k: object's UID
+            v: object's velocity (x and y speed)
+        """
+
         velocity_dict = {}
 
         for detected_object in self.objects:
@@ -236,7 +288,11 @@ class RosTracker:
         pose_realsense.position.z = 0.20
         self.tf_publisher = rviz_util.TFPublisher(
             pose_realsense, "base_link", "realsense_mount")
-        
+
+        # Do the initial publishing of coordinate frames
+        self.tf_publisher.publish()
+        self.tf_publisher_world.publish()
+
         # Creating the TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -274,79 +330,86 @@ class RosTracker:
         self.time = current_time
 
     def bb_callback(self, bb_array):
+        """Called when a new message containing bounding boxes is received.
+
+        Parameters
+        ----------
+        bb_array : BoundingBox3DArray
+            An array of bounding boxes of type BoundingBox3D
+        """
+
         if TIME:
             timer = Timer("update")
             self.timers.append(timer)
 
-        # Publishing the coordinate frames 
+        # A list to hold the new detections
+        self.bounding_boxes = []
+
+        # Publishing the coordinate frames
+        # TODO: convert to static
         self.tf_publisher.publish()
         self.tf_publisher_world.publish()
 
-        # Finding the transformation from the world to the RealSense camera,
-        # as the detected objects should be situated in the world frame.
-        transform = self.tf_buffer.lookup_transform(
-            self.frame_id_world, self.frame_id_realsense, rospy.Time()
-        )
-
-        if DEBUG:
-            rospy.loginfo(transform)
-
-        self.bounding_boxes = []
-        for bounding_box in bb_array.boxes:
-            # "do_transform_pose" requires stamped poses, so converting the original to stamped
-            original_pose_stamped = PoseStamped(
-                bounding_box.header, bounding_box.center)
-            transformed_pose_stamped = tf2_geometry_msgs.do_transform_pose(
-                original_pose_stamped, transform)
-            # Don't transform the size vector, as the pose is already transformed!
-
-            new_bb = BoundingBox3D(
-                bounding_box.header, transformed_pose_stamped.pose, bounding_box.size)
-
-            if VERBOSE:
-                rospy.loginfo(new_bb)
-
-            self.bounding_boxes.append(
-                BoundingBox(bounding_box=new_bb)
+        try:
+            # Finding the transformation from the world to the RealSense camera,
+            # as the detected objects should be situated in the world frame.
+            transform = self.tf_buffer.lookup_transform(
+                self.frame_id_world, self.frame_id_realsense, rospy.Time()
             )
 
+            if DEBUG:
+                rospy.loginfo(transform)
+
+            for bounding_box in bb_array.boxes:
+                # "do_transform_pose" requires stamped poses, so converting the original to stamped
+                original_pose_stamped = PoseStamped(
+                    bounding_box.header, bounding_box.center)
+                transformed_pose_stamped = tf2_geometry_msgs.do_transform_pose(
+                    original_pose_stamped, transform)
+                # Don't transform the size vector, as the pose is already transformed!
+
+                new_bb = BoundingBox3D(
+                    bounding_box.header, transformed_pose_stamped.pose, bounding_box.size)
+
+                if VERBOSE:
+                    rospy.loginfo(new_bb)
+
+                self.bounding_boxes.append(
+                    BoundingBox(bounding_box=new_bb)
+                )
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn(e)
+
         if TIME:
             timer.update()
 
-        self.update_framerate()
-
-        if TIME:
+            self.update_framerate()
             timer.update()
 
-        self.tracker.update(self.bounding_boxes)
-
-        if TIME:
+            self.tracker.update(self.bounding_boxes)
             timer.update()
 
-        self.predictor.update()
-
-        if TIME:
+            self.predictor.update()
             timer.update()
 
-        self.predictor.predict(self.framerate * 2)
-
-        if TIME:
+            self.predictor.predict(self.framerate * 2)
             timer.update()
-
-        detections = self.tracker.objects
+        else:
+            self.update_framerate()
+            self.tracker.update(self.bounding_boxes)
+            self.predictor.update()
+            self.predictor.predict(self.framerate * 2)
 
         # Visualization
-        for obj in detections:
-            # scaling = 1000  # From mm to m
-            scaling = 1
-            x = obj.x / scaling
-            y = obj.y / scaling
-            height = obj.height / scaling
-            diameter = obj.diameter / scaling
-            rospy.loginfo("Diameter:" + str(diameter))
-            v_x = x + obj.v_x / scaling * self.framerate
-            v_y = y + obj.v_y / scaling * self.framerate
+        for obj in self.tracker.objects:
+            x = obj.x
+            y = obj.y
+            height = obj.height
+            diameter = obj.diameter
+            v_x = x + obj.v_x * self.framerate
+            v_y = y + obj.v_y * self.framerate
             duration = self.max_frames_disappeared / self.framerate
+
             # Send data from the tracker
             self.rviz.text(obj.uid, x, y, duration=duration)
             self.rviz.cylinder(obj.uid, x, y, height, diameter,
@@ -355,8 +418,6 @@ class RosTracker:
             # Send data from the predictor
             # Only the x and y
             predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
-            predicted_x /= scaling
-            predicted_y /= scaling
             self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
                             predicted_y, duration=duration, r=0, g=1, b=0)
 
@@ -366,6 +427,8 @@ class RosTracker:
             timer.stop()
 
     def shutdown(self):
+        """If timing the code, output the final results."""
+
         if TIME:
             # for timer in self.timers:
             #     rospy.loginfo(timer)

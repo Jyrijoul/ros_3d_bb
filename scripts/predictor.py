@@ -1,11 +1,32 @@
 class Predictor:
+    """A linear predictor based on the exponential moving average
+
+    Call update() to sync with the tracker and predict() to make predictions.
+    Use the attribute "predictions" to get a dictionary of predictions 
+    (with an object's UID as the key).
+    """
+
     def __init__(self, tracker, sensitivity=0.5):
+        """
+        Parameters
+        ----------
+        tracker : Tracker
+            The Tracker object used
+        sensitivity : float, optional
+            The alpha value of the EMA, by default 0.5
+        """
+        
         self.tracker = tracker
         self.sensitivity = sensitivity
         self.averages = {}
         self.predictions = {}
 
     def update(self):
+        """Syncs with tracker in order to make predictions.
+        
+        Call this function before using predict() to get up-to-date results!
+        """
+
         previous_averages = set(self.averages)
         current_averages = set()
         for obj in self.tracker.objects:
@@ -29,6 +50,16 @@ class Predictor:
             del self.averages[uid]
 
     def predict(self, frames_to_predict):
+        """Makes linear predictions about the objects' positions.
+
+        Parameters
+        ----------
+        frames_to_predict : float
+            The predictor calculates the objects' positions
+            this number of frames into the future.
+            Can also be floating point values.
+        
+        """
         for obj in self.tracker.objects:
             averages = self.averages[obj.uid]
 
