@@ -14,6 +14,7 @@ import tf2_ros
 import tf2_geometry_msgs
 
 
+VISUALIZATION = True
 VERBOSE = True
 DEBUG = True
 TIME = True
@@ -38,6 +39,18 @@ class BoundingBox:
             self.size_y = bounding_box.size.y
             self.size_z = bounding_box.size.z
 
+    def __str__(self):
+        return (
+            "BoundingBox " +
+            "{x: " + self.x +
+            ", y: " + self.y +
+            ", z: " + self.z +
+            ", size_x: " + self.x +
+            ", size_y: " + self.y +
+            ", size_z: " + self.z +
+            "}"
+        )
+
 
 class DetectedObject:
     def __init__(self, uid, bounding_box):
@@ -61,10 +74,17 @@ class DetectedObject:
         return hash(self.uid)
 
     def __str__(self):
-        return "UID: " + str(self.uid) + ", x: " + str(self.x) + ", y: " + str(self.y) + ", v_x: " + str(self.v_x) + ", v_y: " + str(self.v_y)
+        return ("DetectedObject " +
+                "{UID: " + str(self.uid) +
+                ", x: " + str(self.x) +
+                ", y: " + str(self.y) +
+                ", v_x: " + str(self.v_x) +
+                ", v_y: " + str(self.v_y) +
+                "}"
+                )
 
     def update(self, bounding_box):
-        """Updates the object's position, scale, calculates the velocity, resets disappeared counter.
+        """Updates the object's position, scale, calculates the velocity, resets disappearance counter.
 
         Parameters
         ----------
@@ -82,6 +102,7 @@ class DetectedObject:
         self.disappeared = 0
 
     def has_disappeared(self):
+        """Incrementing the disappearance counter every time when not visible."""
         self.disappeared += 1
 
 
@@ -90,7 +111,7 @@ class Tracker:
 
     Call update() first and then get the list of current objects
     using the attribute "objects".
-    
+
     Attributes
     ----------
     objects : list
@@ -100,7 +121,12 @@ class Tracker:
     -------
     update(bounding_boxes: list)
         Updates all the objects based on the detected bounding boxes.
+    get_position_dict()
+        Returns a dictionary of all the existing objects' positions.
+    get_velocity_dict()
+        Returns a dictionary of all the existing objects' velocities.
     """
+
     def __init__(self, max_frames_disappeared=30, starting_id=0):
         """Initializes the tracker
 
@@ -113,8 +139,8 @@ class Tracker:
         self.objects = []
 
     def new_object(self, bounding_box):
-        """Registers a newly detected object."""
-        
+        """Registers a newly detected object, appending it to the "objects" list."""
+
         self.objects.append(DetectedObject(self.current_uid, bounding_box))
 
         # Increment the UID for the next detected object.
@@ -122,7 +148,7 @@ class Tracker:
 
     def get_coordinates(self):
         """Returns coordinates of detected objects in a Python list"""
-        
+
         # This can possibly be improved a bit with Numpy
         coordinates = []
         for detected_object in self.objects:
@@ -132,32 +158,32 @@ class Tracker:
 
         return coordinates
 
-    def delete_if_disappeared(self, detected_object):
-        """Deletes the long-disappeared objects (when time disappeared >= max_frames_disappeared)
-
+    def remove_if_disappeared(self, detected_object):
+        """Removes the long-disappeared objects (when time disappeared >= max_frames_disappeared)
 
         Parameters
         ----------
         detected_object : DetectedObject
-            An object whose disappearance duration is going to be checked.
+            An object whose disappearance duration is going to be checked
+            (and will potentially get removed from the "objects" list).
         """
         if detected_object.disappeared >= self.max_frames_disappeared:
             self.objects.remove(detected_object)
 
     def update(self, bounding_boxes: list):
-        """Updates the positions of detected objects, adds new objects and deletes long-disappeared objects.
+        """Updates the positions of detected objects, adds new objects and removes long-disappeared objects.
 
         Parameters
         ----------
         bounding_boxes : list
-            Detected bounding boxes of type BoundingBox3D (custom ROS message)
+            Detected bounding boxes of type BoundingBox
         """
 
         # If there are no detections, all of the previous objects have disappeared.
         if len(bounding_boxes) == 0:
             for detected_object in self.objects:
                 detected_object.disappeared()
-                self.delete_if_disappeared(detected_object)
+                self.remove_if_disappeared(detected_object)
         # If there are no existing objects, just register all the detections.
         elif len(self.objects) == 0:
             for bounding_box in bounding_boxes:
@@ -177,7 +203,8 @@ class Tracker:
 
             # The following part is mainly from the following article:
             # https://www.pyimagesearch.com/2018/07/23/simple-object-tracking-with-opencv/
-            # Slightly modified the given code, but it was already pretty optimal (using Numpy).
+            # Slightly modified the given code, but it was already pretty optimal,
+            # using Numpy min().argsort() and argmin() for the performance-critical section.
 
             # Basically, this finds indices with least distances between the frames
             # current == rows; new == columns;
@@ -191,9 +218,8 @@ class Tracker:
             indices_used_new = set()
 
             for i, j in zip(indices_sorted_current, indices_sorted_new):
-                if i in indices_used_current or j in indices_used_new:
-                    continue
-                else:
+                if i not in indices_used_current and j not in indices_used_new:
+                    # Updating the existing object's state
                     self.objects[i].update(bounding_boxes[j])
                     indices_used_current.add(i)
                     indices_used_new.add(j)
@@ -201,8 +227,10 @@ class Tracker:
             nr_of_current_objects = distances.shape[0]
             nr_of_new_objects = distances.shape[1]
 
+            # Dealing with the cases where the nr of
+            # existing and detected objects does not match
             if nr_of_current_objects > nr_of_new_objects:
-                # Finding the difference of sets == unused indices
+                # Finding the difference of sets == finding unused indices
                 # Converting to list in order to use reversed() later
                 indices_unused_current = list(set(
                     range(nr_of_current_objects)).difference(indices_used_current))
@@ -212,7 +240,7 @@ class Tracker:
                 for i in reversed(indices_unused_current):
                     obj = self.objects[i]
                     obj.has_disappeared()
-                    self.delete_if_disappeared(obj)
+                    self.remove_if_disappeared(obj)
             elif nr_of_current_objects < nr_of_new_objects:
                 indices_unused_new = set(
                     range(nr_of_new_objects)).difference(indices_used_new)
@@ -220,7 +248,8 @@ class Tracker:
                     self.new_object(bounding_boxes[j])
 
         if VERBOSE:
-            rospy.loginfo("Objects: " + str(list(map(str, self.objects))))
+            rospy.loginfo(
+                "Objects:\n" + "\n".join(list(map(str, self.objects))))
 
     def get_position_dict(self):
         """Returns a dictionary of current objects' positions.
@@ -231,6 +260,7 @@ class Tracker:
             k: object's UID
             v: object's position (x and y)
         """
+
         position_dict = {}
 
         for detected_object in self.objects:
@@ -371,7 +401,7 @@ class RosTracker:
                 new_bb = BoundingBox3D(
                     bounding_box.header, transformed_pose_stamped.pose, bounding_box.size)
 
-                if VERBOSE:
+                if DEBUG:
                     rospy.loginfo(new_bb)
 
                 self.bounding_boxes.append(
@@ -401,27 +431,30 @@ class RosTracker:
             self.predictor.predict(self.framerate * 2)
 
         # Visualization
-        for obj in self.tracker.objects:
-            x = obj.x
-            y = obj.y
-            height = obj.height
-            diameter = obj.diameter
-            v_x = x + obj.v_x * self.framerate
-            v_y = y + obj.v_y * self.framerate
-            duration = self.max_frames_disappeared / self.framerate
+        if VISUALIZATION:
+            for obj in self.tracker.objects:
+                x = obj.x
+                y = obj.y
+                height = obj.height
+                diameter = obj.diameter
+                v_x = x + obj.v_x * self.framerate
+                v_y = y + obj.v_y * self.framerate
+                duration = self.max_frames_disappeared / self.framerate
 
-            # Send data from the tracker
-            self.rviz.text(obj.uid, x, y, duration=duration)
-            self.rviz.cylinder(obj.uid, x, y, height, diameter,
-                               duration=duration, alpha=0.5)
-            self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
-            # Send data from the predictor
-            # Only the x and y
-            predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
-            self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
-                            predicted_y, duration=duration, r=0, g=1, b=0)
+                # Send data from the tracker
+                self.rviz.text(obj.uid, x, y, duration=duration)
+                self.rviz.cylinder(obj.uid, x, y, height, diameter,
+                                   duration=duration, alpha=0.5)
+                self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+                # Send data from the predictor
+                # Only the x and y
+                predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
+                # obj.uid + 1000 is not probably not an ideal way to create multiple markers.
+                self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                                predicted_y, duration=duration, r=0, g=1, b=0)
 
-        self.rviz.publish()
+            # Send the data to self.marker_topic (usually "visualization_marker")
+            self.rviz.publish()
 
         if TIME:
             timer.stop()
@@ -430,17 +463,16 @@ class RosTracker:
         """If timing the code, output the final results."""
 
         if TIME:
-            # for timer in self.timers:
-            #     rospy.loginfo(timer)
             averages = Timer.average_times(self.timers)
             rospy.loginfo("Average timings (in ms): " + str(averages))
-        rospy.loginfo("Exiting...")
+        if VERBOSE:
+            rospy.loginfo("Exiting...")
 
 
 def main():
     rospy.init_node("ros_3d_bb_tracker")
-    module = RosTracker()
-    rospy.on_shutdown(module.shutdown)
+    ros_tracker = RosTracker()
+    rospy.on_shutdown(ros_tracker.shutdown)
     rospy.spin()
 
 
