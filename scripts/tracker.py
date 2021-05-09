@@ -14,10 +14,14 @@ import tf2_ros
 import tf2_geometry_msgs
 
 
+# Send visualization messages to be used in RViz?
 VISUALIZATION = True
+# Send log to output?
 VERBOSE = True
+# Send additional debug log to output?
 DEBUG = True
-TIME = True
+# Gather and output timing information?
+TIMING = True
 
 
 class BoundingBox:
@@ -331,7 +335,7 @@ class RosTracker:
         self.rviz = rviz_util.RViz(frame_id=self.frame_id_world)
 
         # Optionally, creating a list of timers (for performance measurement)
-        if TIME:
+        if TIMING:
             self.timers = []
 
         # Subscribed topics
@@ -368,7 +372,7 @@ class RosTracker:
             An array of bounding boxes of type BoundingBox3D
         """
 
-        if TIME:
+        if TIMING:
             timer = Timer("update")
             self.timers.append(timer)
 
@@ -410,7 +414,7 @@ class RosTracker:
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
             rospy.logwarn(e)
 
-        if TIME:
+        if TIMING:
             timer.update()
 
             self.update_framerate()
@@ -456,13 +460,13 @@ class RosTracker:
             # Send the data to self.marker_topic (usually "visualization_marker")
             self.rviz.publish()
 
-        if TIME:
+        if TIMING:
             timer.stop()
 
     def shutdown(self):
         """If timing the code, output the final results."""
 
-        if TIME:
+        if TIMING:
             averages = Timer.average_times(self.timers)
             rospy.loginfo("Average timings (in ms): " + str(averages))
         if VERBOSE:
