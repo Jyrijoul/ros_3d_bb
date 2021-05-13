@@ -28,6 +28,8 @@ PUBLISH_BB = True
 PUBLISH_IMG = False
 # Modify the color image to show samples, bb corners and the calculated point in pixels?
 MODIFY_COLOR_IMAGE = False
+# Modify the depth image to normalize it?
+MODIFY_DEPTH_IMAGE = False
 # Measure performance?
 TIMING = True
 # Measure performance in more detail?
@@ -41,7 +43,7 @@ SIMULATION = True
 class Ros_3d_bb:
     """A class for converting 2D bounding boxes to 3D
 
-    See the __init__() method's documentation about the various parameters.
+    See the __init__() method's documentation for information about the various parameters.
 
     Attributes
     ----------
@@ -124,7 +126,7 @@ class Ros_3d_bb:
             their 3D centers converted back to 2D and the samples used in the calculation.
         depth_image_out_topic : str, optional
             The depth image output topic, by default "/ros_3d_bb/depth"
-            The output image is normalized for better visual understanding.
+            The output image can be normalized for better visual understanding.
         bb_3d_out_topic : str, optional
             The 3D bounding box output topic, by default "/ros_3d_bb/bb_3d"
             The published messages are of type BoundingBox3DArray.
@@ -148,7 +150,7 @@ class Ros_3d_bb:
         self.frame_id = frame_id
 
         if TIMING:
-            self.timings = []
+            self.timers = []
 
         # Subscribed topics
         if not SIMULATION:
@@ -772,25 +774,21 @@ class Ros_3d_bb:
             Each bounding box comprises 4 consecutive integers (the corners).
         """
 
+        # Calculating the 3D point
+        if TIMING:
+            timer = Timer("ros_3d_bb")
+            self.timers.append(timer)
+
         self.color_callback(color_image)
         self.depth_callback(depth_image, simulation=SIMULATION)
 
-        # Calculating the 3D point
-        if TIMING:
-            timing_start = time.perf_counter()
-
         self.bounding_box_callback(bb_multiarray)
-
-        if TIMING:
-            timing_stop = time.perf_counter()
-            timing = timing_stop - timing_start
-            self.timings.append(timing)
-            rospy.loginfo("Time elapsed:" + str(timing * 1000) + " ms")
 
         # Additional processing for visualization:
         # normalizing the depth image for better visual understanding.
-        depth_image = cv2.normalize(
-            self.depth_image, None, 65535, 0, cv2.NORM_MINMAX)
+        if MODIFY_DEPTH_IMAGE:
+            depth_image = cv2.normalize(
+                self.depth_image, None, 65535, 0, cv2.NORM_MINMAX)
 
         # If enabled, draws the bounding boxes' rectangles and median depths as text.
         if MODIFY_COLOR_IMAGE:
@@ -805,15 +803,20 @@ class Ros_3d_bb:
         if PUBLISH_BB:
             self.publish_bb_3d()
 
-    def shutdown(self):
-        """If TIMING, outputs the performance data before shutdown."""
         if TIMING:
-            if len(self.timings) != 0:
-                average = np.average(self.timings)
-                rospy.loginfo("Average performance: " +
-                              str(average * 1000) + " ms")
-            else:
-                rospy.loginfo("No data to calculate the average performance!")
+            timer.stop(output_file="timings_main.txt", only_total=True, nr_of_objects=len(self.bounding_boxes_3d))
+
+            # timing_stop = time.perf_counter()
+            # timing = timing_stop - timing_start
+            # self.timings.append(timing)
+            # rospy.loginfo("Time elapsed:" + str(timing * 1000) + " ms")
+
+    def shutdown(self):
+        """If timing the code, output the final results."""
+
+        if TIMING:
+            averages = Timer.average_times(self.timers)
+            rospy.loginfo("Average timings (in ms): " + str(averages))
         else:
             rospy.loginfo("Exiting...")
 

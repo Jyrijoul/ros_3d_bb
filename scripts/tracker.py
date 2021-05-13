@@ -17,9 +17,9 @@ import tf2_geometry_msgs
 # Send visualization messages to be used in RViz?
 VISUALIZATION = True
 # Send log to output?
-VERBOSE = True
+VERBOSE = False
 # Send additional debug log to output?
-DEBUG = True
+DEBUG = False
 # Gather and output timing information?
 TIMING = True
 
@@ -309,19 +309,20 @@ class RosTracker:
         self.frame_id_world = "world"
         self.frame_id_odom = "odom"
         self.frame_id_realsense = "realsense_mount"
+        self.frame_id_base_link = "base_link"
 
         # Creating the transform broadcasters
         pose_world = Pose()
         pose_world.orientation.w = 1
         self.tf_publisher_world = rviz_util.TFPublisher(
-            pose_world, "world", "odom")
+            pose_world, self.frame_id_world, self.frame_id_odom)
 
         pose_realsense = Pose()
         pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
         pose_realsense.position.x = 0.17
         pose_realsense.position.z = 0.20
         self.tf_publisher = rviz_util.TFPublisher(
-            pose_realsense, "base_link", "realsense_mount")
+            pose_realsense, self.frame_id_base_link, self.frame_id_realsense)
 
         # Do the initial publishing of coordinate frames
         self.tf_publisher.publish()
@@ -388,7 +389,7 @@ class RosTracker:
             # Finding the transformation from the world to the RealSense camera,
             # as the detected objects should be situated in the world frame.
             transform = self.tf_buffer.lookup_transform(
-                self.frame_id_world, self.frame_id_realsense, rospy.Time()
+                self.frame_id_odom, self.frame_id_realsense, rospy.Time()
             )
 
             if DEBUG:
@@ -461,7 +462,7 @@ class RosTracker:
             self.rviz.publish()
 
         if TIMING:
-            timer.stop()
+            timer.stop(output_file="timings_tracker.txt", only_total=True, nr_of_objects=len(self.tracker.objects))
 
     def shutdown(self):
         """If timing the code, output the final results."""

@@ -15,7 +15,7 @@ class Timer:
     def update(self):
         self.times.append(time.perf_counter())
 
-    def stop(self, print_output=True):
+    def stop(self, print_output=False, output_file="", only_total=False, nr_of_objects=0):
         self.times.append(time.perf_counter())
 
         self.timings = []
@@ -25,11 +25,20 @@ class Timer:
             else:
                 self.timings.append((self.times[i] - self.times[i - 1]) * 1000)
 
+        self.total = sum(self.timings)
+
         if print_output:
             print("Times (" + self.name + "):")
             print(self.timings)
 
-        self.total = sum(self.timings)
+        if output_file != "":
+            nr_of_objects = ", " + str(nr_of_objects)
+            with open(output_file, "a") as f:
+                if only_total:
+                    f.write(str(self.total) + nr_of_objects + "\n")
+                else:
+                    f.write(str(self.timings).strip("[]") + nr_of_objects + "\n")
+
         return self.timings
 
     def average_times(timers, append_total=True):
