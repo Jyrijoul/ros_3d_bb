@@ -17,7 +17,7 @@ import tf2_geometry_msgs
 # Send visualization messages to be used in RViz?
 VISUALIZATION = True
 # Send log to output?
-VERBOSE = False
+VERBOSE = True
 # Send additional debug log to output?
 DEBUG = False
 # Gather and output timing information?
@@ -186,7 +186,7 @@ class Tracker:
         # If there are no detections, all of the previous objects have disappeared.
         if len(bounding_boxes) == 0:
             for detected_object in self.objects:
-                detected_object.disappeared()
+                detected_object.has_disappeared()
                 self.remove_if_disappeared(detected_object)
         # If there are no existing objects, just register all the detections.
         elif len(self.objects) == 0:
@@ -221,12 +221,18 @@ class Tracker:
             indices_used_current = set()
             indices_used_new = set()
 
+            # For filtering based on the minimum distance
+            distances_used = {}
+            min_distance = 0.3
+            print(distances)
+
             for i, j in zip(indices_sorted_current, indices_sorted_new):
                 if i not in indices_used_current and j not in indices_used_new:
                     # Updating the existing object's state
                     self.objects[i].update(bounding_boxes[j])
                     indices_used_current.add(i)
                     indices_used_new.add(j)
+                    distances_used[i] = distances[i, j]
 
             nr_of_current_objects = distances.shape[0]
             nr_of_new_objects = distances.shape[1]
@@ -249,7 +255,15 @@ class Tracker:
                 indices_unused_new = set(
                     range(nr_of_new_objects)).difference(indices_used_new)
                 for j in indices_unused_new:
-                    self.new_object(bounding_boxes[j])
+                    # Filtering based on the minimum distance
+                    create_new_object = True
+                    for i, used_distance in distances_used.items():
+                        if np.abs(distances[i, j] - used_distance) <= min_distance:
+                            create_new_object = False
+                            break
+
+                    if create_new_object:
+                        self.new_object(bounding_boxes[j])
 
         if VERBOSE:
             rospy.loginfo(
@@ -449,14 +463,14 @@ class RosTracker:
                 # Send data from the tracker
                 self.rviz.text(obj.uid, x, y, duration=duration)
                 self.rviz.cylinder(obj.uid, x, y, height, diameter,
-                                   duration=duration, alpha=0.5)
-                self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+                                   duration=duration, alpha=0.5, trajectory=False)
+                # self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
                 # Send data from the predictor
                 # Only the x and y
-                predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
+                # predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
                 # obj.uid + 1000 is not probably not an ideal way to create multiple markers.
-                self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
-                                predicted_y, duration=duration, r=0, g=1, b=0)
+                # self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                                # predicted_y, duration=duration, r=0, g=1, b=0)
 
             # Send the data to self.marker_topic (usually "visualization_marker")
             self.rviz.publish()
