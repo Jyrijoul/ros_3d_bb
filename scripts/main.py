@@ -18,28 +18,6 @@ from timer import Timer
 import jax.numpy as jnp
 
 
-# Send log to output?
-VERBOSE = False
-# Send extra log to output?
-DEBUG = False
-# Publish the bounding box median point in 3D?
-PUBLISH_BB = True
-# Publish the color and depth images?
-PUBLISH_IMG = False
-# Modify the color image to show samples, bb corners and the calculated point in pixels?
-MODIFY_COLOR_IMAGE = False
-# Modify the depth image to normalize it?
-MODIFY_DEPTH_IMAGE = False
-# Measure performance?
-TIMING = True
-# Measure performance in more detail?
-TIMING_DETAILED = False
-# Use the optimized version? "None" to use both
-USE_OPTIMIZED = True
-# Simulation?
-SIMULATION = True
-
-
 class Ros_3d_bb:
     """A class for converting 2D bounding boxes to 3D
 
@@ -68,7 +46,8 @@ class Ros_3d_bb:
     -----------------
     Different topics are subscribed to depending on whether the camera is being simulated.
     All the topics are listed as the __init__() method's parameters.
-    """    
+    """
+
     def __init__(
         self, 
         camera_info_topic_sim="/camera/aligned_depth_to_color/camera_info", 
@@ -86,8 +65,24 @@ class Ros_3d_bb:
         bb_3d_out_topic="/ros_3d_bb/bb_3d", 
         max_time_difference=0.1, 
         queue_size=10, 
+        verbose=False,
+        debug=False,
+        subscribe_to_color=False,
+        publish_bb=True,
+        publish_raw_color_img=False,
+        publish_color_img=False,
+        publish_depth_img=False,
+        modify_color_img=False,
+        modify_depth_img=False,
+        timing=False,
+        timing_detailed=False,
+        use_optimized=True,
+        simulation=False
         ):
-        """Initializes the Ros_3d_bb node
+        """Initializes the Ros_3d_bb node.
+
+        For ease of use, default parameters have been set 
+        but can be freely changed as needed.
 
         Parameters
         ----------
@@ -136,7 +131,40 @@ class Ros_3d_bb:
         queue_size : int, optional
             Maximum queue size for the synchronization, by default 10
             See message_filters.ApproximateTimeSynchronizer for further information.
-        """                
+        verbose : bool, optional
+            Whether to send log to /rosout, by default False
+        debug : bool, optional
+            Whether to send extra log to /rosout, by default False
+        subscribe_to_color : bool, optional
+            Whether to receive color images, by default False
+            Disabled for increased performance, could be enabled for better visualization.
+        publish_bb : bool, optional
+            Whether to publish the resulting 3D bounding box, by default True
+        publish_raw_color_img : bool, optional
+            Whether to publish the unmodified color image to a separate topic, by default False
+        publish_color_img : bool, optional
+            Whether to publish the modified color image, by default False
+            Can also instead publish the unmodified image if "modify_color_img" is set to False.
+        publish_depth_img : bool, optional
+            Whether to publish the depth image, by default False
+        modify_color_img : bool, optional
+            [description], by default False
+        modify_depth_img : bool, optional
+            Whether to normalize the output depth image for better visualization, by default False
+        timing : bool, optional
+            Whether to enable timing of the code, by default False
+            Can be used to evaluate the performance.
+        timing_detailed : bool, optional
+            Whether to enable more extensive timing of the code, by default False
+            Can be used to gather extra information about the performance.
+        use_optimized : bool, optional
+            Whether to use the optimized version of the code, by default True
+            Disable to visualize in the color image the samples used 
+            to find the 3D bounding box, otherwise leave enabled for better performance.
+        simulation : bool, optional
+            Whether to use the simulated camera topics instead of real, by default False
+        """
+
         # Variables to hold both the current color and depth image + bounding box etc
         self.raw_image = 0
         self.color_image = 0
@@ -149,11 +177,32 @@ class Ros_3d_bb:
         # The ROS coordinate frame of the camera
         self.frame_id = frame_id
 
-        if TIMING:
+        # Additional flags
+        self.verbose = verbose
+        self.debug = debug
+        self.subscribe_to_color = subscribe_to_color
+        self.publish_bb = publish_bb
+        self.publish_raw_color_img = publish_raw_color_img
+        self.publish_color_img = publish_color_img
+        self.publish_depth_img = publish_depth_img
+        # Modify the color image to show samples, bb corners and the calculated point in pixels?
+        self.modify_color_img = modify_color_img
+        # Modify the depth image to normalize it?
+        self.modify_depth_img = modify_depth_img
+        # Measure performance?
+        self.timing = timing
+        # Measure performance in more detail?
+        self.timing_detailed = timing_detailed
+        # Use the optimized version? "None" to use both
+        self.use_optimized = use_optimized
+        # Simulation?
+        self.simulation = simulation
+
+        if self.timing:
             self.timers = []
 
         # Subscribed topics
-        if not SIMULATION:
+        if not self.simulation:
             self.camera_info_topic = camera_info_topic_sim
             self.color_image_topic = color_image_topic_sim
             self.depth_image_topic = depth_image_topic_sim
@@ -167,11 +216,13 @@ class Ros_3d_bb:
         self.bb_topic = bb_topic
 
         # Published topics
-        if PUBLISH_IMG:
+        if self.publish_raw_color_img:
             self.raw_image_out_topic = raw_image_out_topic
+        if self.publish_color_img:
             self.color_image_out_topic = color_image_out_topic
+        if self.publish_depth_img:
             self.depth_image_out_topic = depth_image_out_topic
-        if PUBLISH_BB:
+        if self.publish_bb:
             self.bb_3d_out_topic = bb_3d_out_topic
 
         # For matching different topics' messages based on timestamps:
@@ -181,29 +232,31 @@ class Ros_3d_bb:
         # Camera intrinsics
         self.intrinsics = None
 
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Initializing the 3D bounding box module...")
 
         # CvBridge for converting ROS image <-> OpenCV image
         self.bridge = CvBridge()
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Created the CV Bridge.")
 
         # Start all the subscriptions and set all the callbacks
         self.start_subscribing()
 
         # Publishers
-        if PUBLISH_IMG:
+        if self.publish_raw_color_img:
             self.raw_out_pub = rospy.Publisher(
                 self.raw_image_out_topic, Image, queue_size=1
             )
+        if self.publish_color_img:
             self.color_out_pub = rospy.Publisher(
                 self.color_image_out_topic, Image, queue_size=1
             )
+        if self.publish_depth_img:
             self.depth_out_pub = rospy.Publisher(
                 self.depth_image_out_topic, Image, queue_size=1
             )
-        if PUBLISH_BB:
+        if self.publish_bb:
             self.bb_3d_out_pub = rospy.Publisher(
                 self.bb_3d_out_topic, BoundingBox3DArray, queue_size=1
             )
@@ -215,28 +268,28 @@ class Ros_3d_bb:
         camera_info_sub = rospy.Subscriber(
             self.camera_info_topic, CameraInfo, self.camera_info_callback, queue_size=1
         )
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Subscribed to topic: " + self.camera_info_topic)
 
         # For the color image:
         color_image_sub = message_filters.Subscriber(
             self.color_image_topic, Image, queue_size=1
         )
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Subscribed to topic: " + self.color_image_topic)
 
         # For the depth image:
         depth_image_sub = message_filters.Subscriber(
             self.depth_image_topic, Image, queue_size=1
         )
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Subscribed to topic: " + self.depth_image_topic)
 
         # For the bounding boxes:
         bb_sub = message_filters.Subscriber(
             self.bb_topic, Int32MultiArray, queue_size=1
         )
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("Subscribed to topic: " + self.bb_topic)
 
         # allow_headerless = True because some of our own messages may not have a header.
@@ -276,7 +329,7 @@ class Ros_3d_bb:
             elif camera_info.distortion_model == "equidistant":
                 self.intrinsics.model = rs2.distortion.kannala_brandt4
             self.intrinsics.coeffs = [i for i in camera_info.D]
-            if VERBOSE:
+            if self.verbose:
                 rospy.loginfo("Camera instrinsics:\n" + str(self.intrinsics))
 
                 """
@@ -373,13 +426,13 @@ class Ros_3d_bb:
             (0, 0, 0, 0, 0, 0)
         """
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer = Timer("bb_to_coord")
 
         bb_width = self.corner_bottom_right[0] - self.corner_top_left[0]
         bb_height = self.corner_bottom_right[1] - self.corner_top_left[1]
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.update()
 
         # Note:
@@ -388,25 +441,25 @@ class Ros_3d_bb:
         stride_x = 20
         stride_y = 20
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.update()
 
         # Finds the amount of samples in both directions.
         times_x = int(np.ceil(bb_width / stride_x))
         times_y = int(np.ceil(bb_height / stride_y))
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.update()
 
         # Offset is needed to center the samples.
         offset_x = int((bb_width - (times_x - 1) * stride_x - 1) // 2)
         offset_y = int((bb_height - (times_y - 1) * stride_y - 1) // 2)
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.stop()
 
         # Original version
-        if not USE_OPTIMIZED:
+        if not self.use_optimized:
             bb_points = np.zeros((bb_height, bb_width, 3))
 
             for x in range(
@@ -424,7 +477,7 @@ class Ros_3d_bb:
                     ] = point
 
                     # Display a little circle on the RGB image where each sample is located
-                    if MODIFY_COLOR_IMAGE:
+                    if self.modify_color_img:
                         circle_color = (
                             0, 0, 255) if point[2] > 0 else (255, 0, 0)
                         cv2.circle(self.color_image, (x, y),
@@ -446,8 +499,8 @@ class Ros_3d_bb:
         # Optimized version
         # A VERY important note:
         # only use this version when the camera's distortion coefficients are 0!!!
-        if USE_OPTIMIZED or USE_OPTIMIZED is None:
-            if TIMING_DETAILED:
+        if self.use_optimized or self.use_optimized is None:
+            if self.timing_detailed:
                 start_times = []
                 stop_times = []
                 start_times.append(time.perf_counter())
@@ -469,7 +522,7 @@ class Ros_3d_bb:
             # Therefore, if needed, consider using the unoptimized version at a slight
             # performance cost.
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
@@ -484,7 +537,7 @@ class Ros_3d_bb:
                     self.intrinsics.fy * depths
                 points[:, :, 2] = depths
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
@@ -494,7 +547,7 @@ class Ros_3d_bb:
                 np.where(points[:, :, 2] > 0)
             ]
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
@@ -511,7 +564,7 @@ class Ros_3d_bb:
                 # (0 depth signifies error as per the RealSense library).
                 new_medians = (0, 0, 0)
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timing = time.perf_counter()
                 stop_times.append(timing)
                 start_times.append(timing)
@@ -519,7 +572,7 @@ class Ros_3d_bb:
             new_medians = tuple(new_medians)
             medians = new_medians
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 # cp.disable()
                 # cp.print_stats()
                 timing = time.perf_counter()
@@ -527,7 +580,7 @@ class Ros_3d_bb:
                 timings = np.asarray(stop_times) - np.asarray(start_times)
                 rospy.loginfo("Timings: " + str(timings * 1000) + " ms")
 
-        if USE_OPTIMIZED is None:
+        if self.use_optimized is None:
             rospy.loginfo("Medians:\n" +
                           "Old: " + str(old_medians) + "\n" +
                           "New: " + str(new_medians))
@@ -570,13 +623,13 @@ class Ros_3d_bb:
         # Not using custom messages for compatibility reasons.
         # Also, commons_msgs does not have a suitable array type available.
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer = Timer("bb_callback")
 
         nr_of_bounding_boxes = len(bb_multiarray.data) // 4
         self.bounding_boxes_3d = {}
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.update()
 
         for i in range(nr_of_bounding_boxes):
@@ -589,7 +642,7 @@ class Ros_3d_bb:
                 bb_multiarray.data[3 + 4 * i],
             )
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timer.update()
 
             # Find the x, y, z and the corresponding sizes based on the 2D bounding box.
@@ -597,21 +650,21 @@ class Ros_3d_bb:
             self.bounding_boxes_3d[(self.corner_top_left,
                                     self.corner_bottom_right)] = bb_data
 
-            if TIMING_DETAILED:
+            if self.timing_detailed:
                 timer.update()
 
             # Project the point with the median x, y, z back into a pixel to display it.
             # Can be disabled for performance reasons:
-            if MODIFY_COLOR_IMAGE:
+            if self.modify_color_img:
                 self.point_to_image(bb_data)
 
-        if MODIFY_COLOR_IMAGE:
+        if self.modify_color_img:
             self.corners_to_image()
 
-        if VERBOSE:
+        if self.verbose:
             rospy.loginfo("BB 3D: " + str(self.bounding_boxes_3d))
 
-        if TIMING_DETAILED:
+        if self.timing_detailed:
             timer.stop()
 
     def point_to_image(self, bb_data, circle_color=(0, 255, 0)):
@@ -631,7 +684,7 @@ class Ros_3d_bb:
         """
 
         pixel = rs2.rs2_project_point_to_pixel(self.intrinsics, bb_data[:3])
-        if DEBUG:
+        if self.debug:
             rospy.loginfo(
                 "BB median center xy:" +
                 str(round(pixel[0])) + " " +
@@ -775,35 +828,39 @@ class Ros_3d_bb:
         """
 
         # Calculating the 3D point
-        if TIMING:
+        if self.timing:
             timer = Timer("ros_3d_bb")
             self.timers.append(timer)
 
-        self.color_callback(color_image)
-        self.depth_callback(depth_image, simulation=SIMULATION)
+        if self.subscribe_to_color:
+            self.color_callback(color_image)
+        
+        self.depth_callback(depth_image, simulation=self.simulation)
 
         self.bounding_box_callback(bb_multiarray)
 
         # Additional processing for visualization:
         # normalizing the depth image for better visual understanding.
-        if MODIFY_DEPTH_IMAGE:
+        if self.modify_depth_img:
             depth_image = cv2.normalize(
                 self.depth_image, None, 65535, 0, cv2.NORM_MINMAX)
 
         # If enabled, draws the bounding boxes' rectangles and median depths as text.
-        if MODIFY_COLOR_IMAGE:
+        if self.modify_color_img:
             self.depths_to_image()
 
         # Publishing
-        if PUBLISH_IMG:
-            self.publish_raw_image()
+        if self.publish_color_img and self.subscribe_to_color:
             self.publish_color_image(self.color_image)
+        if self.publish_raw_color_img and self.subscribe_to_color:
+            self.publish_raw_image()
+        if self.publish_depth_img:
             self.publish_depth_image(depth_image)
 
-        if PUBLISH_BB:
+        if self.publish_bb:
             self.publish_bb_3d()
 
-        if TIMING:
+        if self.timing:
             timer.stop(output_file="timings_main.txt", only_total=True, nr_of_objects=len(self.bounding_boxes_3d))
 
             # timing_stop = time.perf_counter()
@@ -814,7 +871,7 @@ class Ros_3d_bb:
     def shutdown(self):
         """If timing the code, output the final results."""
 
-        if TIMING:
+        if self.timing:
             averages = Timer.average_times(self.timers)
             rospy.loginfo("Average timings (in ms): " + str(averages))
         else:
@@ -823,7 +880,7 @@ class Ros_3d_bb:
 
 def main(args):
     rospy.init_node("ros_3d_bb", disable_signals=False)
-    node = Ros_3d_bb()
+    node = Ros_3d_bb(simulation=True, verbose=True)
     rospy.on_shutdown(node.shutdown)
     rospy.spin()
 
