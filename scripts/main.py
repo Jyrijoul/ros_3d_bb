@@ -67,7 +67,7 @@ class Ros_3d_bb:
         queue_size=10, 
         verbose=False,
         debug=False,
-        subscribe_to_color=False,
+        subscribe_to_color=True,
         publish_bb=True,
         publish_raw_color_img=False,
         publish_color_img=False,
@@ -880,7 +880,7 @@ class Ros_3d_bb:
 
 def main(args):
     rospy.init_node("ros_3d_bb", disable_signals=False)
-    node = Ros_3d_bb(simulation=True, verbose=True)
+    node = Ros_3d_bb(simulation=False, verbose=True)
     rospy.on_shutdown(node.shutdown)
     rospy.spin()
 

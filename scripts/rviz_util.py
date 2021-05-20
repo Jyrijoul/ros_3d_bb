@@ -61,12 +61,12 @@ class RViz:
         self.marker_array.markers.append(marker)
         self.marker_id += 1
 
-    def cylinder(self, uid=0, x=0.0, y=0.0, z=1, diameter=0.2, duration=1, alpha=0.9, trajectory=True):
+    def cylinder(self, uid=0, x=0.0, y=0.0, z=0, diameter=0.2, duration=1, alpha=0.9, trajectory=True):
         marker = Marker(
             type=Marker.CYLINDER,
             id=self.marker_id,
             lifetime=rospy.Duration(duration),
-            pose=Pose(Point(x, y, z / 2), Quaternion(0, 0, 0, 1)),
+            pose=Pose(Point(x, y, 0), Quaternion(0, 0, 0, 1)),
             scale=Vector3(diameter, diameter, z),
             header=Header(frame_id=self.frame_id),
             color=ColorRGBA(0.0, 0.0, 1.0, alpha))

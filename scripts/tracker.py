@@ -320,7 +320,8 @@ class RosTracker:
         self.predictor = predictor.Predictor(self.tracker, sensitivity=0.2)
 
         # Defining the frame IDs
-        self.frame_id_world = "world"
+        # self.frame_id_world = "world"
+        self.frame_id_world = "camera_link"
         self.frame_id_odom = "odom"
         self.frame_id_realsense = "realsense_mount"
         self.frame_id_base_link = "base_link"
@@ -335,12 +336,19 @@ class RosTracker:
         pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
         pose_realsense.position.x = 0.17
         pose_realsense.position.z = 0.20
+        # Simulation:
         self.tf_publisher = rviz_util.TFPublisher(
             pose_realsense, self.frame_id_base_link, self.frame_id_realsense)
+        # Real camera:
+        self.tf_publisher = rviz_util.TFPublisher(
+            pose_realsense, self.frame_id_world, self.frame_id_realsense)
+
+        # self.tf_publisher_additional = rviz_util.TFPublisher(
+            # pose_world, "camera_color_optical_frame", "world")
 
         # Do the initial publishing of coordinate frames
         self.tf_publisher.publish()
-        self.tf_publisher_world.publish()
+        # self.tf_publisher_world.publish()  # Turn off for real camera!
 
         # Creating the TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -397,13 +405,14 @@ class RosTracker:
         # Publishing the coordinate frames
         # TODO: convert to static
         self.tf_publisher.publish()
-        self.tf_publisher_world.publish()
+        # self.tf_publisher_additional.publish()
+        # self.tf_publisher_world.publish()  # Turn off for real camera!
 
         try:
             # Finding the transformation from the world to the RealSense camera,
             # as the detected objects should be situated in the world frame.
             transform = self.tf_buffer.lookup_transform(
-                self.frame_id_odom, self.frame_id_realsense, rospy.Time()
+                self.frame_id_world, self.frame_id_realsense, rospy.Time()
             )
 
             if DEBUG:
@@ -461,16 +470,16 @@ class RosTracker:
                 duration = self.max_frames_disappeared / self.framerate
 
                 # Send data from the tracker
-                self.rviz.text(obj.uid, x, y, duration=duration)
+                self.rviz.text(obj.uid, x, y, height, duration=duration)
                 self.rviz.cylinder(obj.uid, x, y, height, diameter,
                                    duration=duration, alpha=0.5, trajectory=False)
-                # self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+                self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
                 # Send data from the predictor
                 # Only the x and y
-                # predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
-                # obj.uid + 1000 is not probably not an ideal way to create multiple markers.
-                # self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
-                                # predicted_y, duration=duration, r=0, g=1, b=0)
+                predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
+                # Note: obj.uid + 1000 is not probably not an ideal way to create multiple markers.
+                self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                                predicted_y, duration=duration, r=0, g=1, b=0)
 
             # Send the data to self.marker_topic (usually "visualization_marker")
             self.rviz.publish()
