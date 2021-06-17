@@ -827,6 +827,8 @@ class Ros_3d_bb:
             Each bounding box comprises 4 consecutive integers (the corners).
         """
 
+        print("...")
+
         # Calculating the 3D point
         if self.timing:
             timer = Timer("ros_3d_bb")

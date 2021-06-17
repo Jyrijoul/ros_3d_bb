@@ -333,15 +333,16 @@ class RosTracker:
             pose_world, self.frame_id_world, self.frame_id_odom)
 
         pose_realsense = Pose()
-        pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
+        # pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
+        pose_realsense.orientation.w = 1
         pose_realsense.position.x = 0.17
         pose_realsense.position.z = 0.20
         # Simulation:
         self.tf_publisher = rviz_util.TFPublisher(
             pose_realsense, self.frame_id_base_link, self.frame_id_realsense)
         # Real camera:
-        self.tf_publisher = rviz_util.TFPublisher(
-            pose_realsense, self.frame_id_world, self.frame_id_realsense)
+        # self.tf_publisher = rviz_util.TFPublisher(
+        #    pose_realsense, self.frame_id_world, self.frame_id_realsense)
 
         # self.tf_publisher_additional = rviz_util.TFPublisher(
             # pose_world, "camera_color_optical_frame", "world")
@@ -467,19 +468,20 @@ class RosTracker:
                 diameter = obj.diameter
                 v_x = x + obj.v_x * self.framerate
                 v_y = y + obj.v_y * self.framerate
-                duration = self.max_frames_disappeared / self.framerate
+                # duration = self.max_frames_disappeared / self.framerate
+                duration = 0.05
 
                 # Send data from the tracker
                 self.rviz.text(obj.uid, x, y, height, duration=duration)
                 self.rviz.cylinder(obj.uid, x, y, height, diameter,
                                    duration=duration, alpha=0.5, trajectory=False)
-                self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+                # self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
                 # Send data from the predictor
                 # Only the x and y
                 predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
                 # Note: obj.uid + 1000 is not probably not an ideal way to create multiple markers.
-                self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
-                                predicted_y, duration=duration, r=0, g=1, b=0)
+                # self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                                # predicted_y, duration=duration, r=0, g=1, b=0)
 
             # Send the data to self.marker_topic (usually "visualization_marker")
             self.rviz.publish()

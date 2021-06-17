@@ -41,8 +41,8 @@ class RViz:
         self.marker_array = MarkerArray()
         self.trajectory_array = MarkerArray()
         self.marker_id = 0
-        # Assume we have no more than 1000 / 4 = 250 concurrent object detections.
-        self.trajectory_id = 1000
+        # Assume we have no more than 10000 / 4 = 2500 concurrent object detections.
+        self.trajectory_id = 10000
         self.trajectories = {}
 
     # Source: https://docs.m2stud.io/cs/ros_additional/06-L3-rviz/
@@ -51,7 +51,8 @@ class RViz:
             text = str(uid)
         marker = Marker(
             type=Marker.TEXT_VIEW_FACING,
-            id=self.marker_id,
+            ns=str(uid),
+            id=uid * 3,
             lifetime=rospy.Duration(duration),
             pose=Pose(Point(x, y, z), Quaternion(0, 0, 0, 1)),
             scale=Vector3(scaling, scaling, scaling),
@@ -64,7 +65,8 @@ class RViz:
     def cylinder(self, uid=0, x=0.0, y=0.0, z=0, diameter=0.2, duration=1, alpha=0.9, trajectory=True):
         marker = Marker(
             type=Marker.CYLINDER,
-            id=self.marker_id,
+            ns=str(uid),
+            id=uid * 3 + 1,
             lifetime=rospy.Duration(duration),
             pose=Pose(Point(x, y, 0), Quaternion(0, 0, 0, 1)),
             scale=Vector3(diameter, diameter, z),
@@ -93,7 +95,8 @@ class RViz:
     def arrow(self, uid=0, x=0.0, y=0.0, v_x=0.0, v_y=0.0, duration=1, alpha=0.9, r=1, g=0, b=0):
         marker = Marker(
             type=Marker.ARROW,
-            id=self.marker_id,
+            ns=str(uid),
+            id=uid * 3 + 2,
             lifetime=rospy.Duration(duration),
             points=[Point(x, y, 0), Point(v_x, v_y, 0)],
             # points=[Point(0, 0, 0), Point(2, 2, 0)],
@@ -108,5 +111,6 @@ class RViz:
         # Publish the markers.
         self.marker_array_pub.publish(self.marker_array)
         # Empty the marker array and reset the id.
-        self.marker_array = MarkerArray()
+        # self.marker_array = MarkerArray()
+        self.marker_array.markers.clear()
         self.marker_id = 0
