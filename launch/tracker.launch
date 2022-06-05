@@ -1,0 +1,28 @@
+<launch>
+    <!-- Arguments to be read from the command line or changed when included. -->
+    <arg name="frame_realsense_mount" default="realsense_mount" doc="The realsense mount coordinate frame" />
+    <arg name="frame_camera_link" default="camera_link" doc="The camera link coordinate frame" />
+    <arg name="frame_world" default="odom" doc="The world coordinate frame" />
+    <arg name="publish_transform" default="True" doc="Whether to broadcast the realsense_mount transform" />
+    <arg name="marker_array_topic" default="visualization_marker_array" doc="The visualization marker array topic" />
+    <arg name="bb_3d_topic" default="ros_3d_bb/bb_3d" doc="The 3D bounding box topic" />
+
+    <group if="$(arg publish_transform)" >
+        <!-- <node pkg="tf" type="static_transform_publisher" name="jackal_realsense_broadcaster" args="0.17 0 0.20 0 0 0 $(arg frame_camera_link) $(arg frame_realsense_mount) 100" /> -->
+        <node pkg="tf" type="static_transform_publisher" name="robotont_realsense_broadcaster" args="0 0 0 -1.570796327 0 -1.570796327 $(arg frame_camera_link) $(arg frame_realsense_mount) 100" />
+    </group>
+
+    <!-- Launching the main node. -->
+    <node pkg="ros_3d_bb" type="tracker.py" name="ros_3d_bb_tracker" output="screen">
+        <!-- Overall configuration is read from a config file. -->
+        <rosparam command="load" file="$(find ros_3d_bb)/config/config_tracker.yaml" />
+
+        <!-- These parameters are set separately to enable changing them from the command line. -->
+        <param name="frame_realsense_mount" value="$(arg frame_realsense_mount)" />
+        <param name="frame_world" value="$(arg frame_world)" />
+
+        <!-- Remapping both input and output topics. -->
+        <remap from="marker_array_topic" to="$(arg marker_array_topic)" />
+        <remap from="bb_3d_topic" to="$(arg bb_3d_topic)" />
+    </node>
+</launch>

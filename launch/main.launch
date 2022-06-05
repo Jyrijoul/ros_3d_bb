@@ -1,0 +1,31 @@
+<launch>
+    <!-- Arguments to be read from the command line or changed when included. -->
+    <arg name="camera_info" default="camera/color/camera_info" doc="CameraInfo topic" />
+    <arg name="camera_image" default="camera/color/image_raw" doc="Image topic" />
+    <arg name="camera_depth" default="camera/aligned_depth_to_color/image_raw" doc="Image topic" />
+    <arg name="bb_topic" default="yolo_bounding_box" doc="2D bounding box topic" />
+    <arg name="frame_id" default="realsense_mount" doc="The coordinate frame of the camera" />
+    <arg name="raw_image_out_topic" default="ros_3d_bb/raw" doc="The unmodified color image output topic" />
+    <arg name="color_image_out_topic" default="ros_3d_bb/color" doc="The modified color image output topic." />
+    <arg name="depth_image_out_topic" default="ros_3d_bb/depth" doc="The depth image output topic" />
+    <arg name="bb_3d_out_topic" default="ros_3d_bb/bb_3d" doc="The 3D bounding box output topic" />
+
+    <!-- Launching the main node. -->
+    <node pkg="ros_3d_bb" type="main.py" name="ros_3d_bb_main" output="screen">
+        <!-- Overall configuration is read from a config file. -->
+        <rosparam command="load" file="$(find ros_3d_bb)/config/config_main.yaml" />
+
+        <!-- This parameter is set separately to enable changing it from the command line. -->
+        <param name="frame_id" value="$(arg frame_id)" />
+
+        <!-- Remapping both input and output topics. -->
+        <remap from="camera_info" to="$(arg camera_info)" />
+        <remap from="camera_image" to="$(arg camera_image)" />
+        <remap from="camera_depth" to="$(arg camera_depth)" />
+        <remap from="bb_topic" to="$(arg bb_topic)" />
+        <remap from="raw_image_out_topic" to="$(arg raw_image_out_topic)" />
+        <remap from="color_image_out_topic" to="$(arg color_image_out_topic)" />
+        <remap from="depth_image_out_topic" to="$(arg depth_image_out_topic)" />
+        <remap from="bb_3d_out_topic" to="$(arg bb_3d_out_topic)" />
+    </node>
+</launch>
