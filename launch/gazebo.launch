@@ -1,0 +1,5 @@
+<launch>
+    <include file="$(find robotont_gazebo)/launch/gazebo.launch">
+        <arg name="world" value="$(find ros_3d_bb)/worlds/minimaze_modified.world" />
+    </include>
+</launch>
