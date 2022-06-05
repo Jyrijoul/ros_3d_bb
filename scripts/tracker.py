@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 
 import rospy
-from std_msgs.msg import Int32MultiArray
 import numpy as np
 from scipy.spatial import distance
 import time
 import rviz_util
 import predictor
 from timer import Timer
-from geometry_msgs.msg import Pose, Point, Vector3, Quaternion, PoseStamped, Vector3Stamped
+from geometry_msgs.msg import (
+    Pose,
+    Point,
+    Vector3,
+    Quaternion,
+    PoseStamped,
+    Vector3Stamped,
+)
 from ros_3d_bb.msg import BoundingBox3D, BoundingBox3DArray
 import tf2_ros
 import tf2_geometry_msgs
@@ -45,14 +51,20 @@ class BoundingBox:
 
     def __str__(self):
         return (
-            "BoundingBox " +
-            "{x: " + self.x +
-            ", y: " + self.y +
-            ", z: " + self.z +
-            ", size_x: " + self.x +
-            ", size_y: " + self.y +
-            ", size_z: " + self.z +
-            "}"
+            "BoundingBox "
+            + "{x: "
+            + self.x
+            + ", y: "
+            + self.y
+            + ", z: "
+            + self.z
+            + ", size_x: "
+            + self.x
+            + ", size_y: "
+            + self.y
+            + ", size_z: "
+            + self.z
+            + "}"
         )
 
 
@@ -69,7 +81,7 @@ class DetectedObject:
         self.uid = uid
 
         if DEBUG:
-            rospy.loginfo("Created new object: " + str(self))
+            rospy.logdebug("Created new object: " + str(self))
 
     def __eq__(self, other):
         return self.uid == other.uid
@@ -78,14 +90,20 @@ class DetectedObject:
         return hash(self.uid)
 
     def __str__(self):
-        return ("DetectedObject " +
-                "{UID: " + str(self.uid) +
-                ", x: " + str(self.x) +
-                ", y: " + str(self.y) +
-                ", v_x: " + str(self.v_x) +
-                ", v_y: " + str(self.v_y) +
-                "}"
-                )
+        return (
+            "DetectedObject "
+            + "{UID: "
+            + str(self.uid)
+            + ", x: "
+            + str(self.x)
+            + ", y: "
+            + str(self.y)
+            + ", v_x: "
+            + str(self.v_x)
+            + ", v_y: "
+            + str(self.v_y)
+            + "}"
+        )
 
     def update(self, bounding_box):
         """Updates the object's position, scale, calculates the velocity, resets disappearance counter.
@@ -157,7 +175,7 @@ class Tracker:
         coordinates = []
         for detected_object in self.objects:
             if DEBUG:
-                rospy.loginfo("Object: " + str(detected_object))
+                rospy.logdebug("Object: " + str(detected_object))
             coordinates.append((detected_object.x, detected_object.y))
 
         return coordinates
@@ -203,7 +221,10 @@ class Tracker:
             # current_1   1       2
             # current_2   3       4
             distances = distance.cdist(
-                np.array(current_coordinates), [(bb.x, bb.y) for bb in bounding_boxes], "euclidean")
+                np.array(current_coordinates),
+                [(bb.x, bb.y) for bb in bounding_boxes],
+                "euclidean",
+            )
 
             # The following part is mainly from the following article:
             # https://www.pyimagesearch.com/2018/07/23/simple-object-tracking-with-opencv/
@@ -213,8 +234,7 @@ class Tracker:
             # Basically, this finds indices with least distances between the frames
             # current == rows; new == columns;
             indices_sorted_current = distances.min(axis=1).argsort()
-            indices_sorted_new = distances.argmin(
-                axis=1)[indices_sorted_current]
+            indices_sorted_new = distances.argmin(axis=1)[indices_sorted_current]
 
             # Using set() to filter out the indices already used,
             # also enables set difference operation for later
@@ -224,7 +244,8 @@ class Tracker:
             # For filtering based on the minimum distance
             distances_used = {}
             min_distance = 0.3
-            print(distances)
+            if DEBUG:
+                rospy.logdebug(distances)
 
             for i, j in zip(indices_sorted_current, indices_sorted_new):
                 if i not in indices_used_current and j not in indices_used_new:
@@ -242,8 +263,9 @@ class Tracker:
             if nr_of_current_objects > nr_of_new_objects:
                 # Finding the difference of sets == finding unused indices
                 # Converting to list in order to use reversed() later
-                indices_unused_current = list(set(
-                    range(nr_of_current_objects)).difference(indices_used_current))
+                indices_unused_current = list(
+                    set(range(nr_of_current_objects)).difference(indices_used_current)
+                )
 
                 # reversed() in order not to mess up the indexing
                 # (iteration + mutation on the same list)
@@ -252,8 +274,9 @@ class Tracker:
                     obj.has_disappeared()
                     self.remove_if_disappeared(obj)
             elif nr_of_current_objects < nr_of_new_objects:
-                indices_unused_new = set(
-                    range(nr_of_new_objects)).difference(indices_used_new)
+                indices_unused_new = set(range(nr_of_new_objects)).difference(
+                    indices_used_new
+                )
                 for j in indices_unused_new:
                     # Filtering based on the minimum distance
                     create_new_object = True
@@ -266,8 +289,7 @@ class Tracker:
                         self.new_object(bounding_boxes[j])
 
         if VERBOSE:
-            rospy.loginfo(
-                "Objects:\n" + "\n".join(list(map(str, self.objects))))
+            rospy.loginfo("Objects:\n" + "\n".join(list(map(str, self.objects))))
 
     def get_position_dict(self):
         """Returns a dictionary of current objects' positions.
@@ -282,8 +304,7 @@ class Tracker:
         position_dict = {}
 
         for detected_object in self.objects:
-            position_dict[detected_object.uid] = (
-                detected_object.x, detected_object.y)
+            position_dict[detected_object.uid] = (detected_object.x, detected_object.y)
 
         return position_dict
 
@@ -301,7 +322,9 @@ class Tracker:
 
         for detected_object in self.objects:
             velocity_dict[detected_object.uid] = (
-                detected_object.v_x, detected_object.v_y)
+                detected_object.v_x,
+                detected_object.v_y,
+            )
 
         return velocity_dict
 
@@ -309,7 +332,13 @@ class Tracker:
 class RosTracker:
     def __init__(self):
         self.bounding_boxes = []
-        self.max_frames_disappeared = 30
+        self.max_frames_disappeared = rospy.get_param(
+            "~max_frames_disappeared", default=30
+        )
+        self.starting_id = rospy.get_param("~starting_id", default=0)
+        self.sensitivity = rospy.get_param("~sensitivity", default=0.2)
+        # self.duration = self.max_frames_disappeared / self.framerate
+        self.duration = rospy.get_param("~marker_duration", default=0.05)
         self.time = time.time()
         self.framerate = 0
 
@@ -317,68 +346,36 @@ class RosTracker:
         self.tracker = Tracker(self.max_frames_disappeared)
 
         # Initializing the predictor
-        self.predictor = predictor.Predictor(self.tracker, sensitivity=0.2)
+        self.predictor = predictor.Predictor(self.tracker, sensitivity=self.sensitivity)
 
         # Defining the frame IDs
-        # self.frame_id_world = "world"
-        self.frame_id_world = "camera_link"
-        self.frame_id_odom = "odom"
-        self.frame_id_realsense = "realsense_mount"
-        self.frame_id_base_link = "base_link"
-
-        # Creating the transform broadcasters
-        pose_world = Pose()
-        pose_world.orientation.w = 1
-        self.tf_publisher_world = rviz_util.TFPublisher(
-            pose_world, self.frame_id_world, self.frame_id_odom)
-
-        pose_realsense = Pose()
-        # pose_realsense.orientation = Quaternion(0.5, -0.5, 0.5, -0.5)
-        pose_realsense.orientation.w = 1
-        pose_realsense.position.x = 0.17
-        pose_realsense.position.z = 0.20
-        # Simulation:
-        self.tf_publisher = rviz_util.TFPublisher(
-            pose_realsense, self.frame_id_base_link, self.frame_id_realsense)
-        # Real camera:
-        # self.tf_publisher = rviz_util.TFPublisher(
-        #    pose_realsense, self.frame_id_world, self.frame_id_realsense)
-
-        # self.tf_publisher_additional = rviz_util.TFPublisher(
-            # pose_world, "camera_color_optical_frame", "world")
-
-        # Do the initial publishing of coordinate frames
-        self.tf_publisher.publish()
-        # self.tf_publisher_world.publish()  # Turn off for real camera!
+        self.frame_id_world = rospy.get_param("~frame_world", default="odom")
+        self.frame_id_realsense = rospy.get_param(
+            "~frame_realsense_mount", default="realsense_mount"
+        )
 
         # Creating the TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         # For handling RViz visualization
-        self.rviz = rviz_util.RViz(frame_id=self.frame_id_world)
+        self.marker_array_topic = rospy.get_param("~marker_array_topic", default="visualization_marker_array")
+        self.rviz = rviz_util.RViz(marker_array_topic=self.marker_array_topic, frame_id=self.frame_id_world)
 
         # Optionally, creating a list of timers (for performance measurement)
         if TIMING:
             self.timers = []
 
         # Subscribed topics
-        self.bb_point_topic = "/ros_3d_bb/bb_3d"
+        self.bb_point_topic = rospy.get_param("~bb_3d_topic", default="ros_3d_bb/bb_3d")
 
         # Subscribers
         self.bb_point_sub = rospy.Subscriber(
             self.bb_point_topic, BoundingBox3DArray, self.bb_callback, queue_size=1
         )
 
-        # Published topics
-        self.bounding_boxes_topic = "/ros_3d_bb/"
-        self.marker_topic = "visualization_marker"
-
-        # Publishers
-        # ---
-
         if VERBOSE:
-            rospy.loginfo("Subscribed to topic: " + self.bb_point_topic)
+            rospy.loginfo("Subscribed to topic: " + self.bb_point_sub.resolved_name)
 
     def update_framerate(self):
         """Updates the program's framerate for making accurate predictions"""
@@ -403,40 +400,44 @@ class RosTracker:
         # A list to hold the new detections
         self.bounding_boxes = []
 
-        # Publishing the coordinate frames
-        # TODO: convert to static
-        self.tf_publisher.publish()
-        # self.tf_publisher_additional.publish()
-        # self.tf_publisher_world.publish()  # Turn off for real camera!
-
         try:
             # Finding the transformation from the world to the RealSense camera,
             # as the detected objects should be situated in the world frame.
             transform = self.tf_buffer.lookup_transform(
-                self.frame_id_world, self.frame_id_realsense, rospy.Time()
+                self.frame_id_world,
+                self.frame_id_realsense,
+                rospy.Time.now(),
+                rospy.Duration(1),
             )
 
             if DEBUG:
-                rospy.loginfo(transform)
+                rospy.logdebug("Transform:" + str(transform))
 
             for bounding_box in bb_array.boxes:
                 # "do_transform_pose" requires stamped poses, so converting the original to stamped
                 original_pose_stamped = PoseStamped(
-                    bounding_box.header, bounding_box.center)
+                    bounding_box.header, bounding_box.center
+                )
                 transformed_pose_stamped = tf2_geometry_msgs.do_transform_pose(
-                    original_pose_stamped, transform)
+                    original_pose_stamped, transform
+                )
                 # Don't transform the size vector, as the pose is already transformed!
 
                 new_bb = BoundingBox3D(
-                    bounding_box.header, transformed_pose_stamped.pose, bounding_box.size)
+                    transformed_pose_stamped.header,
+                    transformed_pose_stamped.pose,
+                    bounding_box.size,
+                )
 
                 if DEBUG:
-                    rospy.loginfo(new_bb)
+                    rospy.logdebug(new_bb)
 
-                self.bounding_boxes.append(
-                    BoundingBox(bounding_box=new_bb)
-                )
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+                self.bounding_boxes.append(BoundingBox(bounding_box=new_bb))
+        except (
+            tf2_ros.LookupException,
+            tf2_ros.ConnectivityException,
+            tf2_ros.ExtrapolationException,
+        ) as e:
             rospy.logwarn(e)
 
         if TIMING:
@@ -468,26 +469,38 @@ class RosTracker:
                 diameter = obj.diameter
                 v_x = x + obj.v_x * self.framerate
                 v_y = y + obj.v_y * self.framerate
-                # duration = self.max_frames_disappeared / self.framerate
-                duration = 0.05
 
                 # Send data from the tracker
-                self.rviz.text(obj.uid, x, y, height, duration=duration)
-                self.rviz.cylinder(obj.uid, x, y, height, diameter,
-                                   duration=duration, alpha=0.5, trajectory=False)
-                # self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=duration)
+                self.rviz.text(obj.uid, x, y, height, duration=self.duration)
+                self.rviz.cylinder(
+                    obj.uid,
+                    x,
+                    y,
+                    height,
+                    diameter,
+                    duration=self.duration,
+                    alpha=0.5,
+                    trajectory=False,
+                )
+                self.rviz.arrow(obj.uid, x, y, v_x, v_y, duration=self.duration)
                 # Send data from the predictor
                 # Only the x and y
-                predicted_x, predicted_y,  = self.predictor.predictions[obj.uid][:2]
+                predicted_x, predicted_y, = self.predictor.predictions[
+                    obj.uid
+                ][:2]
                 # Note: obj.uid + 1000 is not probably not an ideal way to create multiple markers.
-                # self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
-                                # predicted_y, duration=duration, r=0, g=1, b=0)
+                self.rviz.arrow(obj.uid + 1000, x, y, predicted_x,
+                predicted_y, duration=self.duration, r=0, g=1, b=0)
 
-            # Send the data to self.marker_topic (usually "visualization_marker")
+            # Send the data to self.marker_array_topic (usually "visualization_marker_array")
             self.rviz.publish()
 
         if TIMING:
-            timer.stop(output_file="timings_tracker.txt", only_total=True, nr_of_objects=len(self.tracker.objects))
+            timer.stop(
+                output_file="timings_tracker.txt",
+                only_total=True,
+                nr_of_objects=len(self.tracker.objects),
+            )
 
     def shutdown(self):
         """If timing the code, output the final results."""
@@ -501,6 +514,17 @@ class RosTracker:
 
 def main():
     rospy.init_node("ros_3d_bb_tracker")
+
+    # Get the parameters from the parameter server
+    global VERBOSE
+    VERBOSE = rospy.get_param("~verbose", default=VERBOSE)
+    global DEBUG
+    DEBUG = rospy.get_param("~debug", default=DEBUG)
+    global TIMING
+    TIMING = rospy.get_param("~timing", default=TIMING)
+    global VISUALIZATION
+    VISUALIZATION = rospy.get_param("~visualization", default=VISUALIZATION)
+
     ros_tracker = RosTracker()
     rospy.on_shutdown(ros_tracker.shutdown)
     rospy.spin()

@@ -4,10 +4,6 @@ import rospy
 from std_msgs.msg import Header, ColorRGBA
 from geometry_msgs.msg import PointStamped, Pose, Point, Vector3, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker, MarkerArray
-
-# Some magic code to use Python3
-#import sys
-#sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
 import tf2_ros
 from tf2_msgs.msg import TFMessage
 
@@ -16,7 +12,7 @@ class TFPublisher:
     def __init__(self, pose, parent_frame_id="base_link", child_frame_id="realsense_mount"):
         self.parent_frame_id = parent_frame_id
         self.child_frame_id = child_frame_id
-        self.tf_pub = rospy.Publisher("/tf", TFMessage, queue_size=1)
+        self.tf_pub = rospy.Publisher("tf", TFMessage, queue_size=1)
         self.pose = pose
 
     def publish(self):
@@ -33,10 +29,10 @@ class TFPublisher:
 
 
 class RViz:
-    def __init__(self, marker_topic="visualization_marker_array", frame_id="realsense_mount"):
+    def __init__(self, marker_array_topic="visualization_marker_array", frame_id="realsense_mount"):
         # Publishers
         self.marker_array_pub = rospy.Publisher(
-            marker_topic, MarkerArray, queue_size=5)
+            marker_array_topic, MarkerArray, queue_size=5)
         self.frame_id = frame_id
         self.marker_array = MarkerArray()
         self.trajectory_array = MarkerArray()
@@ -68,7 +64,7 @@ class RViz:
             ns=str(uid),
             id=uid * 3 + 1,
             lifetime=rospy.Duration(duration),
-            pose=Pose(Point(x, y, 0), Quaternion(0, 0, 0, 1)),
+            pose=Pose(Point(x, y, z / 2), Quaternion(0, 0, 0, 1)),
             scale=Vector3(diameter, diameter, z),
             header=Header(frame_id=self.frame_id),
             color=ColorRGBA(0.0, 0.0, 1.0, alpha))
