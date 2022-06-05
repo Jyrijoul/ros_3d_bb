@@ -95,11 +95,10 @@ class RViz:
             id=uid * 3 + 2,
             lifetime=rospy.Duration(duration),
             points=[Point(x, y, 0), Point(v_x, v_y, 0)],
-            # points=[Point(0, 0, 0), Point(2, 2, 0)],
-            # pose=Pose(Point(x, y, 0), Quaternion(0, 0, 0, 1)),
             scale=Vector3(0.05, 0.1, 0),
             header=Header(frame_id=self.frame_id),
             color=ColorRGBA(r, g, b, alpha))
+        marker.pose.orientation.w = 1
         self.marker_array.markers.append(marker)
         self.marker_id += 1
 
