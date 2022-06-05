@@ -1,0 +1,20 @@
+---
+depth_scale: 0.001 # The scale of one bit in meters
+max_time_difference: 0.1 # Maximum time between the images and the 2D bounding box message
+queue_size: 10 # Maximum queue size for the synchronization
+# Verbosity and debug are set as parameters to gain better performance.
+verbose: False # Should the program be verbose?
+debug: False # Whether to send extra log
+subscribe_to_color: True # Whether to process color images
+publish_bb: True # Whether to publish the resulting 3D bounding box
+publish_raw_color_img: False # Whether to publish the unmodified color image to a separate topic
+publish_color_img: False # Whether to publish the modified color image
+publish_depth_img: False # Whether to publish the depth image
+modify_color_img: False # Whether to modify the color image
+modify_depth_img: False # Whether to normalize the output depth image for better visualization
+timing: False # Whether to enable timing of the code
+timing_detailed: False # Whether to enable more extensive timing of the code
+use_optimized: True # Whether to use the optimized version of the code
+# The simulation parameter is needed due to differences between the real and simulated RealSense cameras.
+simulation: True # Whether the camera is simulated
+

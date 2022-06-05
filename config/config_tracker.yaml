@@ -1,0 +1,10 @@
+---
+# Verbosity and debug are set as parameters to gain better performance.
+verbose: False # Should the program be verbose?
+debug: False # Whether to send extra log
+timing: False # Whether to enable timing of the code
+visualization: True # Whether to send visualization messages to be used in RViz
+max_frames_disappeared: 30 # Disappearance threshold
+starting_id: 0 # Starting ID for detections
+predictor_sensitivity: 0.2 # The alpha value of the predictor EMA
+marker_duration: 0.05 # Duration of the markers
