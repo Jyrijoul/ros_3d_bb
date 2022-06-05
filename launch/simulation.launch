@@ -1,0 +1,63 @@
+<launch>
+    <!-- Global arguments -->
+    <arg name="camera_image" default="camera/color/image_raw" doc="Input image topic" />
+    <arg name="bb_3d_topic" default="ros_3d_bb/bb_3d" doc="The 3D bounding box topic" />
+    <arg name="bb_topic" default="yolo_bounding_box" doc="2D bounding box topic" />
+    <arg name="frame_id" default="realsense_mount" doc="The coordinate frame of the camera" />
+    <arg name="rviz" default="True" doc="Whether to launch RViz" />
+
+    <!-- Arguments for yolo.launch -->
+    <arg name="show_image" default="False" doc="Whether to use cv2 to display the output image." />
+    <arg name="freeze_detection" default="False" doc="Whether to freeze the detection on every frame; only works when show_image is True." />
+    <arg name="publish_empty" default="False" doc="Whether to publish empty bounding boxes when no object are found." />
+    <arg name="yolo_image_out" default="yolo_result_out" doc="Output image topic" />
+
+    <!-- Arguments for main.launch -->
+    <arg name="camera_info" default="camera/color/camera_info" doc="CameraInfo topic" />
+    <arg name="camera_depth" default="camera/aligned_depth_to_color/image_raw" doc="Image topic" />
+    <arg name="raw_image_out_topic" default="ros_3d_bb/raw" doc="The unmodified color image output topic" />
+    <arg name="color_image_out_topic" default="ros_3d_bb/color" doc="The modified color image output topic." />
+    <arg name="depth_image_out_topic" default="ros_3d_bb/depth" doc="The depth image output topic" />
+
+    <!-- Arguments for tracker.launch -->
+    <arg name="frame_camera_link" default="camera_link" doc="The camera link coordinate frame" />
+    <arg name="frame_world" default="odom" doc="The world coordinate frame" />
+    <arg name="publish_transform" default="True" doc="Whether to broadcast the realsense_mount transform" />
+    <arg name="marker_array_topic" default="visualization_marker_array" doc="The visualization marker array topic" />
+
+    <!-- Include the ROS YOLO node launch file -->
+    <include file="$(find ros_yolo)/launch/yolo.launch">
+        <arg name="show_image" value="$(arg show_image)" />
+        <arg name="freeze_detection" value="$(arg freeze_detection)" />
+        <arg name="publish_empty" value="$(arg publish_empty)" />
+        <arg name="camera_image" value="$(arg camera_image)" />
+        <arg name="yolo_image_out" value="$(arg yolo_image_out)" />
+        <arg name="yolo_bounding_box_out" value="$(arg bb_topic)" />
+    </include>
+
+    <!-- Include the main node launch file -->
+    <include file="$(find ros_3d_bb)/launch/main.launch">
+        <arg name="camera_info" value="$(arg camera_info)" />
+        <arg name="camera_image" value="$(arg camera_image)" />
+        <arg name="camera_depth" value="$(arg camera_depth)" />
+        <arg name="bb_topic" value="$(arg bb_topic)" />
+        <arg name="frame_id" value="$(arg frame_id)" />
+        <arg name="raw_image_out_topic" value="$(arg raw_image_out_topic)" />
+        <arg name="color_image_out_topic" value="$(arg color_image_out_topic)" />
+        <arg name="depth_image_out_topic" value="$(arg depth_image_out_topic)" />
+        <arg name="bb_3d_out_topic" value="$(arg bb_3d_topic)" />    
+    </include>
+
+    <!-- Include the tracker node launch file -->
+    <include file="$(find ros_3d_bb)/launch/tracker.launch">
+        <arg name="frame_realsense_mount" value="$(arg frame_id)" />
+        <arg name="frame_camera_link" value="$(arg frame_camera_link)" />
+        <arg name="frame_world" value="$(arg frame_world)" />
+        <arg name="publish_transform" value="$(arg publish_transform)" />
+        <arg name="marker_array_topic" value="$(arg marker_array_topic)" />
+        <arg name="bb_3d_topic" value="$(arg bb_3d_topic)" />
+    </include>
+
+    <node pkg="rviz" type="rviz" name="ros_3d_bb_rviz" args="-d $(find ros_3d_bb)/config/rviz.rviz" if="$(arg rviz)" />
+    
+</launch>
