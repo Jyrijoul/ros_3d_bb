@@ -9,19 +9,17 @@ from sensor_msgs.msg import Image, CameraInfo
 from ros_3d_bb.msg import BoundingBox3D, BoundingBox3DArray
 from geometry_msgs.msg import Pose, Point, Vector3, Quaternion
 import message_filters
-import threading
-import queue
 import time
 import pyrealsense2 as rs2
-import cProfile
 from timer import Timer
-import jax.numpy as jnp
 
 
 class Ros_3d_bb:
     """A class for converting 2D bounding boxes to 3D
 
     See the __init__() method's documentation for information about the various parameters.
+
+    NB! If these parameters are set from the configuration file, the arguments' values are just used as defaults.
 
     Attributes
     ----------
@@ -36,7 +34,7 @@ class Ros_3d_bb:
     bounding_boxes_3d : dict
         A dictionary of 3D bounding boxes
         The keys are the 2D bounding box corners and
-        the values are the corresponding 3D bounding box data. 
+        the values are the corresponding 3D bounding box data.
 
     Methods
     -------
@@ -49,22 +47,19 @@ class Ros_3d_bb:
     """
 
     def __init__(
-        self, 
-        camera_info_topic_sim="/camera/aligned_depth_to_color/camera_info", 
-        color_image_topic_sim="/camera/color/image_raw", 
-        depth_image_topic_sim="/camera/aligned_depth_to_color/image_raw", 
-        camera_info_topic_real="/realsense/color/camera_info", 
-        color_image_topic_real="/realsense/color/image_raw", 
-        depth_image_topic_real="/realsense/depth/image_rect_raw", 
-        bb_topic="/yolo_bounding_box", 
-        depth_scale=0.001, 
-        frame_id="realsense_mount", 
-        raw_image_out_topic="/ros_3d_bb/raw", 
-        color_image_out_topic="/ros_3d_bb/color", 
-        depth_image_out_topic="/ros_3d_bb/depth", 
-        bb_3d_out_topic="/ros_3d_bb/bb_3d", 
-        max_time_difference=0.1, 
-        queue_size=10, 
+        self,
+        camera_info_topic="camera_info",
+        color_image_topic="camera_image",
+        depth_image_topic="camera_depth",
+        bb_topic="bb_topic",
+        depth_scale=0.001,
+        frame_id="realsense_mount",
+        raw_image_out_topic="raw_image_out_topic",
+        color_image_out_topic="color_image_out_topic",
+        depth_image_out_topic="depth_image_out_topic",
+        bb_3d_out_topic="bb_3d_out_topic",
+        max_time_difference=0.1,
+        queue_size=10,
         verbose=False,
         debug=False,
         subscribe_to_color=True,
@@ -77,30 +72,22 @@ class Ros_3d_bb:
         timing=False,
         timing_detailed=False,
         use_optimized=True,
-        simulation=False
-        ):
+        simulation=True,
+    ):
         """Initializes the Ros_3d_bb node.
 
-        For ease of use, default parameters have been set 
+        For ease of use, default parameters have been set
         but can be freely changed as needed.
 
         Parameters
         ----------
-        camera_info_topic_sim : str, optional
-            CameraInfo topic of the simulated camera, by default "/camera/aligned_depth_to_color/camera_info"
+        camera_info_topic : str, optional
+            CameraInfo topic of the camera, by default "camera/color/camera_info"
             For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"!
-        color_image_topic_sim : str, optional
-            Image topic of the simulated camera, by default "/camera/color/image_raw"
-        depth_image_topic_sim : str, optional
-            Image topic of the simulated camera, by default "/camera/aligned_depth_to_color/image_raw"
-        camera_info_topic_real : str, optional
-            CameraInfo topic of the real camera, by default "/realsense/color/camera_info"
-            For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"!
-            Also, see the documentation about launching the RealSense ROS wrapper. 
-        color_image_topic_real : str, optional
-            Image topic of the real camera, by default "/realsense/color/image_raw"
-        depth_image_topic_real : str, optional
-            Image topic of the real camera, by default "/realsense/depth/image_rect_raw"
+        color_image_topic : str, optional
+            Image topic of the camera, by default "camera/color/image_raw"
+        depth_image_topic : str, optional
+            Image topic of the camera, by default "camera/aligned_depth_to_color/image_raw"
         bb_topic : str, optional
             2D bounding box topic, by default "/yolo_bounding_box"
             The messages have to be of type Int32MultiArray, where each bounding box
@@ -134,9 +121,9 @@ class Ros_3d_bb:
         verbose : bool, optional
             Whether to send log to /rosout, by default False
         debug : bool, optional
-            Whether to send extra log to /rosout, by default False
+            Whether to send extra log, by default False
         subscribe_to_color : bool, optional
-            Whether to receive color images, by default False
+            Whether to process color images, by default False
             Disabled for increased performance, could be enabled for better visualization.
         publish_bb : bool, optional
             Whether to publish the resulting 3D bounding box, by default True
@@ -148,7 +135,7 @@ class Ros_3d_bb:
         publish_depth_img : bool, optional
             Whether to publish the depth image, by default False
         modify_color_img : bool, optional
-            [description], by default False
+            Whether to modify the color image, by default False
         modify_depth_img : bool, optional
             Whether to normalize the output depth image for better visualization, by default False
         timing : bool, optional
@@ -159,7 +146,7 @@ class Ros_3d_bb:
             Can be used to gather extra information about the performance.
         use_optimized : bool, optional
             Whether to use the optimized version of the code, by default True
-            Disable to visualize in the color image the samples used 
+            Disable to visualize in the color image the samples used
             to find the 3D bounding box, otherwise leave enabled for better performance.
         simulation : bool, optional
             Whether to use the simulated camera topics instead of real, by default False
@@ -173,44 +160,53 @@ class Ros_3d_bb:
         self.corner_bottom_right = 0
         self.bounding_boxes_3d = {}
         # Using the RealSense D435i, this value should be 0.001 (1 mm scale).
-        self.depth_scale = depth_scale
+        self.depth_scale = rospy.get_param("~depth_scale", default=depth_scale)
         # The ROS coordinate frame of the camera
-        self.frame_id = frame_id
+        self.frame_id = rospy.get_param("~frame_id", default=frame_id)
 
         # Additional flags
-        self.verbose = verbose
-        self.debug = debug
-        self.subscribe_to_color = subscribe_to_color
-        self.publish_bb = publish_bb
-        self.publish_raw_color_img = publish_raw_color_img
-        self.publish_color_img = publish_color_img
-        self.publish_depth_img = publish_depth_img
+        self.verbose = rospy.get_param("~verbose", default=verbose)
+        self.debug = rospy.get_param("~debug", default=debug)
+        self.subscribe_to_color = rospy.get_param(
+            "~subscribe_to_color", default=subscribe_to_color
+        )
+        self.publish_bb = rospy.get_param("~publish_bb", default=publish_bb)
+        self.publish_raw_color_img = rospy.get_param(
+            "~publish_raw_color_img", default=publish_raw_color_img
+        )
+        self.publish_color_img = rospy.get_param(
+            "~publish_color_img", default=publish_color_img
+        )
+        self.publish_depth_img = rospy.get_param(
+            "~publish_depth_img", default=publish_depth_img
+        )
         # Modify the color image to show samples, bb corners and the calculated point in pixels?
-        self.modify_color_img = modify_color_img
+        self.modify_color_img = rospy.get_param(
+            "~modify_color_img", default=modify_color_img
+        )
         # Modify the depth image to normalize it?
-        self.modify_depth_img = modify_depth_img
+        self.modify_depth_img = rospy.get_param(
+            "~modify_depth_img", default=modify_depth_img
+        )
         # Measure performance?
-        self.timing = timing
+        self.timing = rospy.get_param("~timing", default=timing)
         # Measure performance in more detail?
-        self.timing_detailed = timing_detailed
+        self.timing_detailed = rospy.get_param(
+            "~timing_detailed", default=timing_detailed
+        )
         # Use the optimized version? "None" to use both
-        self.use_optimized = use_optimized
+        self.use_optimized = rospy.get_param("~use_optimized", default=use_optimized)
         # Simulation?
-        self.simulation = simulation
+        self.simulation = rospy.get_param("~simulation", default=simulation)
 
         if self.timing:
             self.timers = []
 
         # Subscribed topics
-        if not self.simulation:
-            self.camera_info_topic = camera_info_topic_sim
-            self.color_image_topic = color_image_topic_sim
-            self.depth_image_topic = depth_image_topic_sim
-        else:
-            # For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"
-            self.camera_info_topic = camera_info_topic_real
-            self.color_image_topic = color_image_topic_real
-            self.depth_image_topic = depth_image_topic_real
+        # For camera_info, use either "aligned_depth_to_color/camera_info" or "color/camera_info"
+        self.camera_info_topic = camera_info_topic
+        self.color_image_topic = color_image_topic
+        self.depth_image_topic = depth_image_topic
 
         # This is needed for both simulation and real inputs
         self.bb_topic = bb_topic
@@ -226,11 +222,10 @@ class Ros_3d_bb:
             self.bb_3d_out_topic = bb_3d_out_topic
 
         # For matching different topics' messages based on timestamps:
-        self.max_time_difference = max_time_difference
-        self.queue_size = queue_size
-
-        # Camera intrinsics
-        self.intrinsics = None
+        self.max_time_difference = rospy.get_param(
+            "~max_time_difference", default=max_time_difference
+        )
+        self.queue_size = rospy.get_param("~queue_size", default=queue_size)
 
         if self.verbose:
             rospy.loginfo("Initializing the 3D bounding box module...")
@@ -264,12 +259,12 @@ class Ros_3d_bb:
     def start_subscribing(self):
         """Creating the specified ROS subscribers."""
 
-        # For the camera instrinsics:
-        camera_info_sub = rospy.Subscriber(
-            self.camera_info_topic, CameraInfo, self.camera_info_callback, queue_size=1
-        )
+        # For setting the camera instrinsics:
+        # Wait as long as needed to get the camera_info, then parse it.
+        camera_info = rospy.wait_for_message(self.camera_info_topic, CameraInfo)
+        self.camera_info_callback(camera_info)
         if self.verbose:
-            rospy.loginfo("Subscribed to topic: " + self.camera_info_topic)
+            rospy.loginfo("Camera_info received from topic: " + self.camera_info_topic)
 
         # For the color image:
         color_image_sub = message_filters.Subscriber(
@@ -290,7 +285,7 @@ class Ros_3d_bb:
             self.bb_topic, Int32MultiArray, queue_size=1
         )
         if self.verbose:
-            rospy.loginfo("Subscribed to topic: " + self.bb_topic)
+            rospy.loginfo("Subscribed to topic: " + bb_sub.sub.resolved_name)
 
         # allow_headerless = True because some of our own messages may not have a header.
         self.time_synchronizer = message_filters.ApproximateTimeSynchronizer(
@@ -330,7 +325,7 @@ class Ros_3d_bb:
                 self.intrinsics.model = rs2.distortion.kannala_brandt4
             self.intrinsics.coeffs = [i for i in camera_info.D]
             if self.verbose:
-                rospy.loginfo("Camera instrinsics:\n" + str(self.intrinsics))
+                rospy.loginfo("Camera intrinsics:\n" + str(self.intrinsics))
 
                 """
                 With the 435i it should be something like:
@@ -340,10 +335,7 @@ class Ros_3d_bb:
             rospy.logerr(err)
 
     def camera_info_callback(self, camera_info):
-        if self.intrinsics:  # This is probably not the best regarding performance...
-            return
-        else:
-            self.camera_intrinsics_from_camera_info(camera_info)
+        self.camera_intrinsics_from_camera_info(camera_info)
 
     def color_callback(self, color_image):
         """Converts the ROS Image to an OpenCV image.
@@ -392,8 +384,7 @@ class Ros_3d_bb:
         if self.intrinsics:
             # Important! Scaling by a factor of 0.001 so the results are in meters, not mm!
             depth = self.depth_image[y, x] * self.depth_scale
-            point = rs2.rs2_deproject_pixel_to_point(
-                self.intrinsics, [x, y], depth)
+            point = rs2.rs2_deproject_pixel_to_point(self.intrinsics, [x, y], depth)
         else:
             # If we don't know the camera parameters,
             # return coordinates 0, 0, 0 to mark an error.
@@ -419,7 +410,7 @@ class Ros_3d_bb:
         Returns
         -------
         tuple
-            The coordinates (x, y, z) and 
+            The coordinates (x, y, z) and
             the dimensions (size_x, size_y, size_z) of a bounding box
             in a sextuple
             If not a valid detection, the following tuple is returned:
@@ -463,30 +454,27 @@ class Ros_3d_bb:
             bb_points = np.zeros((bb_height, bb_width, 3))
 
             for x in range(
-                    self.corner_top_left[0] + offset_x,
-                    self.corner_bottom_right[0],
-                    stride_x):
+                self.corner_top_left[0] + offset_x,
+                self.corner_bottom_right[0],
+                stride_x,
+            ):
                 for y in range(
-                        self.corner_top_left[1] + offset_y,
-                        self.corner_bottom_right[1],
-                        stride_y):
+                    self.corner_top_left[1] + offset_y,
+                    self.corner_bottom_right[1],
+                    stride_y,
+                ):
                     point = self.pixel_to_point(x, y)
                     bb_points[
-                        y - self.corner_top_left[1], x -
-                        self.corner_top_left[0]
+                        y - self.corner_top_left[1], x - self.corner_top_left[0]
                     ] = point
 
                     # Display a little circle on the RGB image where each sample is located
                     if self.modify_color_img:
-                        circle_color = (
-                            0, 0, 255) if point[2] > 0 else (255, 0, 0)
-                        cv2.circle(self.color_image, (x, y),
-                                   2, circle_color, 2)
+                        circle_color = (0, 0, 255) if point[2] > 0 else (255, 0, 0)
+                        cv2.circle(self.color_image, (x, y), 2, circle_color, 2)
 
             # Only the points with non-zero depth
-            filtered_points = bb_points[
-                np.where(bb_points[:, :, 2] > 0)
-            ]
+            filtered_points = bb_points[np.where(bb_points[:, :, 2] > 0)]
 
             # Return the median of each axis
             old_medians = (
@@ -508,9 +496,15 @@ class Ros_3d_bb:
             # Utilizing Numpy functions in order to get rid of a double for-loop.
             # Performing sampling with given strides in both directions.
             x_range = np.arange(
-                self.corner_top_left[0] + offset_x, self.corner_bottom_right[0], stride_x)
+                self.corner_top_left[0] + offset_x,
+                self.corner_bottom_right[0],
+                stride_x,
+            )
             y_range = np.arange(
-                self.corner_top_left[1] + offset_y, self.corner_bottom_right[1], stride_y)
+                self.corner_top_left[1] + offset_y,
+                self.corner_bottom_right[1],
+                stride_y,
+            )
             xx, yy = np.meshgrid(x_range, y_range)
             # Important! Scaling by a factor of 0.001 so the results are in meters, not mm!
             depths = self.depth_image[yy, xx] * self.depth_scale
@@ -531,10 +525,12 @@ class Ros_3d_bb:
             if self.intrinsics:
                 # Vectorized variants of the calculations found in the RealSense library
                 # https://github.com/IntelRealSense/librealsense/blob/v2.24.0/wrappers/python/examples/box_dimensioner_multicam/helper_functions.py#L121-L147
-                points[:, :, 0] = (xx - self.intrinsics.ppx) / \
-                    self.intrinsics.fx * depths
-                points[:, :, 1] = (yy - self.intrinsics.ppy) / \
-                    self.intrinsics.fy * depths
+                points[:, :, 0] = (
+                    (xx - self.intrinsics.ppx) / self.intrinsics.fx * depths
+                )
+                points[:, :, 1] = (
+                    (yy - self.intrinsics.ppy) / self.intrinsics.fy * depths
+                )
                 points[:, :, 2] = depths
 
             if self.timing_detailed:
@@ -543,9 +539,7 @@ class Ros_3d_bb:
                 start_times.append(timing)
 
             # Only the points with non-zero depth (new)
-            filtered_points_new = points[
-                np.where(points[:, :, 2] > 0)
-            ]
+            filtered_points_new = points[np.where(points[:, :, 2] > 0)]
 
             if self.timing_detailed:
                 timing = time.perf_counter()
@@ -581,17 +575,21 @@ class Ros_3d_bb:
                 rospy.loginfo("Timings: " + str(timings * 1000) + " ms")
 
         if self.use_optimized is None:
-            rospy.loginfo("Medians:\n" +
-                          "Old: " + str(old_medians) + "\n" +
-                          "New: " + str(new_medians))
+            rospy.loginfo(
+                "Medians:\n"
+                + "Old: "
+                + str(old_medians)
+                + "\n"
+                + "New: "
+                + str(new_medians)
+            )
 
         # Added the scaling information for x and y (and also z but yet unimplemented).
         output_with_scale = []
         output_with_scale.extend(medians)
         # Note: this results in (0, 0, 0, 0, 0, 0) when the median depth is 0.
         # This is desired, as it allows to filter out false results later.
-        output_with_scale.extend(self.get_bb_scale(
-            medians[2], bb_width, bb_height))
+        output_with_scale.extend(self.get_bb_scale(medians[2], bb_width, bb_height))
 
         return tuple(output_with_scale)
 
@@ -609,7 +607,7 @@ class Ros_3d_bb:
         Parameters
         ----------
         bb_multiarray : Int32MultiArray
-            An array of 2D bounding box corners, 
+            An array of 2D bounding box corners,
             with each bounding box described by 4 consecutive values.
             May contain corners of zero to many bounding boxes.
 
@@ -647,8 +645,9 @@ class Ros_3d_bb:
 
             # Find the x, y, z and the corresponding sizes based on the 2D bounding box.
             bb_data = self.bounding_box_to_coordinates()
-            self.bounding_boxes_3d[(self.corner_top_left,
-                                    self.corner_bottom_right)] = bb_data
+            self.bounding_boxes_3d[
+                (self.corner_top_left, self.corner_bottom_right)
+            ] = bb_data
 
             if self.timing_detailed:
                 timer.update()
@@ -670,25 +669,26 @@ class Ros_3d_bb:
     def point_to_image(self, bb_data, circle_color=(0, 255, 0)):
         """Draws a 3D point on the color image.
 
-        Converts the given 3D point back to a pixel 
+        Converts the given 3D point back to a pixel
         and draws it on the color image as a small circle.
 
         Parameters
         ----------
         bb_data : tuple
-            A sextuple that contains the x, y, z 
+            A sextuple that contains the x, y, z
             and the respective dimensions of a bounding box.
             Only the first three elements (x, y, z) are needed.
         circle_color : tuple, optional
-            by default green (0, 255, 0) 
+            by default green (0, 255, 0)
         """
 
         pixel = rs2.rs2_project_point_to_pixel(self.intrinsics, bb_data[:3])
         if self.debug:
-            rospy.loginfo(
-                "BB median center xy:" +
-                str(round(pixel[0])) + " " +
-                str(round(pixel[1]))
+            rospy.logdebug(
+                "BB median center xy:"
+                + str(round(pixel[0]))
+                + " "
+                + str(round(pixel[1]))
             )
         cv2.circle(
             self.color_image,
@@ -719,22 +719,23 @@ class Ros_3d_bb:
         )
         cv2.circle(
             self.color_image,
-            (self.corner_bottom_right[0],
-             self.corner_bottom_right[1]),
+            (self.corner_bottom_right[0], self.corner_bottom_right[1]),
             5,
             circle_color,
             2,
         )
 
     def depths_to_image(
-            self, digits=3,
-            font=cv2.FONT_HERSHEY_SIMPLEX,
-            font_scale=0.75,
-            text_color=(255, 0, 255),
-            bb_color=(0, 255, 0)):
+        self,
+        digits=3,
+        font=cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale=0.75,
+        text_color=(255, 0, 255),
+        bb_color=(0, 255, 0),
+    ):
         """Modifies the color image to display depth information.
 
-        Draws the 2D bounding box rectangles on the color image and 
+        Draws the 2D bounding box rectangles on the color image and
         displays their median depths in meters.
 
         Parameters
@@ -753,11 +754,16 @@ class Ros_3d_bb:
 
         for corners, bb_data in self.bounding_boxes_3d.items():
             depth = bb_data[2]
-            text_position = (
-                corners[0][0], (corners[0][1] + corners[1][1]) // 2)
+            text_position = (corners[0][0], (corners[0][1] + corners[1][1]) // 2)
             text = str(round(depth, digits)) + " m"
             cv2.putText(
-                self.color_image, text, text_position, font, font_scale, text_color, thickness=2
+                self.color_image,
+                text,
+                text_position,
+                font,
+                font_scale,
+                text_color,
+                thickness=2,
             )
             cv2.rectangle(
                 self.color_image,
@@ -769,8 +775,7 @@ class Ros_3d_bb:
             )
 
     def publish_raw_image(self):
-        self.raw_out_pub.publish(
-            self.bridge.cv2_to_imgmsg(self.raw_image, "bgr8"))
+        self.raw_out_pub.publish(self.bridge.cv2_to_imgmsg(self.raw_image, "bgr8"))
 
     def publish_color_image(self, image):
         self.color_out_pub.publish(self.bridge.cv2_to_imgmsg(image, "bgr8"))
@@ -793,26 +798,24 @@ class Ros_3d_bb:
 
             # if not bb_data == (0, 0, 0, 0, 0, 0):
             if not bb_data[2] == 0:
-                bb_array.boxes.append(BoundingBox3D(
-                    header=Header(stamp=stamp, frame_id=frame_id),
-                    center=Pose(
-                        Point(
-                            x=bb_data[0],
-                            y=bb_data[1],
-                            z=bb_data[2]),
-                        Quaternion(0, 0, 0, 1)),
-                    size=Vector3(
-                        bb_data[3],
-                        bb_data[4],
-                        bb_data[5])))
+                bb_array.boxes.append(
+                    BoundingBox3D(
+                        header=Header(stamp=stamp, frame_id=frame_id),
+                        center=Pose(
+                            Point(x=bb_data[0], y=bb_data[1], z=bb_data[2]),
+                            Quaternion(0, 0, 0, 1),
+                        ),
+                        size=Vector3(bb_data[3], bb_data[4], bb_data[5]),
+                    )
+                )
 
         self.bb_3d_out_pub.publish(bb_array)
 
     def processing(self, color_image, depth_image, bb_multiarray):
         """Controls the processing flow when a pack of messages is received.
 
-        Calls the image conversion routines, the 3D bounding box 
-        coordinate and size calculation, color image modification 
+        Calls the image conversion routines, the 3D bounding box
+        coordinate and size calculation, color image modification
         (for visualization, if enabled) and
         publishes the 3D bounding boxes (if enabled).
 
@@ -836,7 +839,7 @@ class Ros_3d_bb:
 
         if self.subscribe_to_color:
             self.color_callback(color_image)
-        
+
         self.depth_callback(depth_image, simulation=self.simulation)
 
         self.bounding_box_callback(bb_multiarray)
@@ -845,7 +848,8 @@ class Ros_3d_bb:
         # normalizing the depth image for better visual understanding.
         if self.modify_depth_img:
             depth_image = cv2.normalize(
-                self.depth_image, None, 65535, 0, cv2.NORM_MINMAX)
+                self.depth_image, None, 65535, 0, cv2.NORM_MINMAX
+            )
 
         # If enabled, draws the bounding boxes' rectangles and median depths as text.
         if self.modify_color_img:
@@ -863,7 +867,11 @@ class Ros_3d_bb:
             self.publish_bb_3d()
 
         if self.timing:
-            timer.stop(output_file="timings_main.txt", only_total=True, nr_of_objects=len(self.bounding_boxes_3d))
+            timer.stop(
+                output_file="timings_main.txt",
+                only_total=True,
+                nr_of_objects=len(self.bounding_boxes_3d),
+            )
 
             # timing_stop = time.perf_counter()
             # timing = timing_stop - timing_start
@@ -882,7 +890,7 @@ class Ros_3d_bb:
 
 def main(args):
     rospy.init_node("ros_3d_bb", disable_signals=False)
-    node = Ros_3d_bb(simulation=False, verbose=True)
+    node = Ros_3d_bb(simulation=True, verbose=True)
     rospy.on_shutdown(node.shutdown)
     rospy.spin()
 
