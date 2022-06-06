@@ -9,6 +9,11 @@ project(ros_3d_bb)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  cv_bridge
+  message_filters
+  # python-pyrealsense2-pip
+  # python3-numpy
+  # python3-opencv
   sensor_msgs
   std_msgs
   geometry_msgs
@@ -109,7 +114,7 @@ catkin_python_setup()
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES ros_3d_bb
-  CATKIN_DEPENDS rospy sensor_msgs std_msgs
+#  CATKIN_DEPENDS rospy sensor_msgs std_msgs
   DEPENDS message_runtime
 )
 
