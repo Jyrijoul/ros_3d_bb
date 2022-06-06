@@ -1,7 +1,31 @@
 # ROS package for 3D object detection with tracking and trajectory prediction
+
+## Overview
 This package allows users to use any 2D object detector and depth camera to predict 3D bounding boxes of detected objects, as well as track their movement and predict their trajectories.
 
 This version supports the Noetic distribution of ROS. The programs were tested using the Intel RealSense D435 camera and Noetic. Although Noetic is recommended to avoid compatibility issues with different versions of Python, Melodic can also be used but the user may need to change the Python path to avoid using Python 2. Detailed documentation about the various nodes and modules can be found in the corresponding Python scripts.
+
+## Results
+---
+### Simulation demos (Robotont Gazebo)
+<p align="center">
+    <img src="media/ros_3d_bb_demo_1.gif" width="300" alt="Demo with one detected object" />
+    <br>
+    <sup>Demo with one detected object</sup>
+</p>
+
+<p align="center">
+    <img src="media/ros_3d_bb_demo_2.gif" width="300" alt="Demo with multiple detected objects" />
+    <br>
+    <sup>Demo with multiple detected objects</sup>
+</div>
+
+### Runtime analysis
+<p align="center">
+    <img src="media/computation.png" width="300" alt="Demo with multiple detected objects" />
+    <br>
+    <sup>Computation time with regard to the number of detected objects. Highlighted areas are one standard deviation above and below the line. Measurements do not include the required 2D detecion.</sup>
+</div>
 
 ## Installation instructions
 To use this package, various dependencies must be met. Please install the _pyrealsense2_, _opencv-python_, and _numpy_ manually, using either _pip_ or _conda_. Rest of the dependencies should be solvable using _rosdep_.
@@ -19,7 +43,7 @@ This package is composed of two main nodes: the main node and the tracker node. 
 Both the launch files and configuration files enable extensive configuration of the nodes, using the ROS parameter server and topic remapping. Be sure to check them out and see what options there are. In addition to the documentation found in these files, the Python scripts can often offer more extensive documentation.
 
 ### Simulation with Robotont
-For using this node with a simulated Robotont robot, first install the necessary packages, such as [robotont_gazebo](https://github.com/robotont/robotont_gazebo) and its dependencies. Then, use ```gazebo.launch``` from the _ros_3d_bb_ package to run the simulation with a provided world. To control the robot, run ```rosrun teleop_twist_keyboard teleop_twist_keyboard.py```. Finally, it is recommended to use ```simulation.launch``` to launch all the necessary _ros_3d_bb_ and _ros_yolo_ nodes to perform 3D object detection, tracking, and trajectory prediction.
+For using this node with a simulated Robotont robot, first install the necessary packages, such as [robotont_gazebo](https://github.com/robotont/robotont_gazebo) and its dependencies. Then, use ```gazebo.launch``` from the _ros_3d_bb_ package to run the simulation with a provided world. To control the robot, run ```rosrun teleop_twist_keyboard teleop_twist_keyboard.py```. Finally, it is recommended to use ```roslaunch ros_3d_bb simulation.launch``` to launch all the necessary _ros_3d_bb_ and _ros_yolo_ nodes to perform 3D object detection, tracking, and trajectory prediction.
 
 ### Real camera
 If using the real camera, (eg Intel RealSense D435), use ```roslaunch realsense2_camera rs_aligned_depth.launch``` to start the camera feed. Launch the other nodes similarly to instructions provided in the previous sections.
