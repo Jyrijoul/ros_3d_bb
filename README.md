@@ -9,20 +9,20 @@ This version supports the Noetic distribution of ROS. The programs were tested u
 ---
 ### Simulation demos (Robotont Gazebo)
 <p align="center">
-    <img src="media/ros_3d_bb_demo_1.gif" width="300" alt="Demo with one detected object" />
+    <img src="media/ros_3d_bb_demo_1.gif" width="480" alt="Demo with one detected object" />
     <br>
     <sup>Demo with one detected object</sup>
 </p>
 
 <p align="center">
-    <img src="media/ros_3d_bb_demo_2.gif" width="300" alt="Demo with multiple detected objects" />
+    <img src="media/ros_3d_bb_demo_2.gif" width="480" alt="Demo with multiple detected objects" />
     <br>
     <sup>Demo with multiple detected objects</sup>
 </div>
 
 ### Runtime analysis
 <p align="center">
-    <img src="media/computation.png" width="300" alt="Demo with multiple detected objects" />
+    <img src="media/computation.png" width="480" alt="Demo with multiple detected objects" />
     <br>
     <sup>Computation time with regard to the number of detected objects. Highlighted areas are one standard deviation above and below the line. Measurements do not include the required 2D detecion.</sup>
 </div>
