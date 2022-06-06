@@ -11,7 +11,7 @@ from geometry_msgs.msg import Pose, Point, Vector3, Quaternion
 import message_filters
 import time
 import pyrealsense2 as rs2
-from timer import Timer
+from ros_3d_bb import Timer
 
 
 class Ros_3d_bb:

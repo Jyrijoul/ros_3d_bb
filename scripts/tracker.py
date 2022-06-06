@@ -4,9 +4,9 @@ import rospy
 import numpy as np
 from scipy.spatial import distance
 import time
-import rviz_util
-import predictor
-from timer import Timer
+from ros_3d_bb import RViz
+from ros_3d_bb import Predictor
+from ros_3d_bb import Timer
 from geometry_msgs.msg import (
     Pose,
     Point,
@@ -346,7 +346,7 @@ class RosTracker:
         self.tracker = Tracker(self.max_frames_disappeared)
 
         # Initializing the predictor
-        self.predictor = predictor.Predictor(self.tracker, sensitivity=self.sensitivity)
+        self.predictor = Predictor(self.tracker, sensitivity=self.sensitivity)
 
         # Defining the frame IDs
         self.frame_id_world = rospy.get_param("~frame_world", default="odom")
@@ -360,7 +360,7 @@ class RosTracker:
 
         # For handling RViz visualization
         self.marker_array_topic = rospy.get_param("~marker_array_topic", default="visualization_marker_array")
-        self.rviz = rviz_util.RViz(marker_array_topic=self.marker_array_topic, frame_id=self.frame_id_world)
+        self.rviz = RViz(marker_array_topic=self.marker_array_topic, frame_id=self.frame_id_world)
 
         # Optionally, creating a list of timers (for performance measurement)
         if TIMING:
