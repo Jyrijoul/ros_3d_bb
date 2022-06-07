@@ -15,6 +15,3 @@ modify_depth_img: False # Whether to normalize the output depth image for better
 timing: False # Whether to enable timing of the code
 timing_detailed: False # Whether to enable more extensive timing of the code
 use_optimized: True # Whether to use the optimized version of the code
-# The simulation parameter is needed due to differences between the real and simulated RealSense cameras.
-simulation: True # Whether the camera is simulated
-

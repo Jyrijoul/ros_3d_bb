@@ -1,6 +1,15 @@
 <launch>
+    <!-- Arguments for the RealSense camera -->
+    <arg name="camera"                  default="camera" doc="Namespace of the published topics" />
+    <arg name="tf_prefix"               default="$(arg camera)" doc="Prefix of the published coordinate frames" />
+    <arg name="publish_tf"              default="true" doc="Whether to publish coordinate frames" />
+    <arg name="publish_odom_tf"         default="false" doc="Whether to publish the odometry frames" />
+    <arg name="align_depth"             default="true" doc="Whether to align the depth image to the color image" />
+    <arg name="enable_pointcloud"       default="false" doc="Whether to output the point cloud" />
+    <arg name="output"                  default="screen" />
+
     <!-- Global arguments -->
-    <arg name="camera_image"            default="camera/color/image_raw" doc="Input image topic" />
+    <arg name="camera_image"            default="$(arg camera)/color/image_raw" doc="Input image topic" />
     <arg name="bb_3d_topic"             default="ros_3d_bb/bb_3d" doc="The 3D bounding box topic" />
     <arg name="bb_topic"                default="yolo_bounding_box" doc="2D bounding box topic" />
     <arg name="frame_id"                default="realsense_mount" doc="The coordinate frame of the camera" />
@@ -14,17 +23,28 @@
     <arg name="output_frame"            default="camera_link" doc="The output image coordinate frame" />
 
     <!-- Arguments for main.launch -->
-    <arg name="camera_info"             default="camera/color/camera_info" doc="CameraInfo topic" />
-    <arg name="camera_depth"            default="camera/aligned_depth_to_color/image_raw" doc="Image topic" />
+    <arg name="camera_info"             default="$(arg camera)/color/camera_info" doc="CameraInfo topic" />
+    <arg name="camera_depth"            default="$(arg camera)/aligned_depth_to_color/image_raw" doc="Image topic" />
     <arg name="raw_image_out_topic"     default="ros_3d_bb/raw" doc="The unmodified color image output topic" />
     <arg name="color_image_out_topic"   default="ros_3d_bb/color" doc="The modified color image output topic" />
     <arg name="depth_image_out_topic"   default="ros_3d_bb/depth" doc="The depth image output topic" />
 
     <!-- Arguments for tracker.launch -->
-    <arg name="frame_camera_link"       default="camera_link" doc="The camera link coordinate frame" />
-    <arg name="frame_world"             default="odom" doc="The world coordinate frame" />
+    <arg name="frame_camera_link"       default="$(arg camera)_link" doc="The camera link coordinate frame" />
+    <arg name="frame_world"             default="$(arg camera)_link" doc="The world coordinate frame" />
     <arg name="publish_transform"       default="True" doc="Whether to broadcast the realsense_mount transform" />
     <arg name="marker_array_topic"      default="visualization_marker_array" doc="The visualization marker array topic" />
+
+    <!-- Launch the RealSense camera node -->
+    <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+        <arg name="camera"                  value="$(arg camera)" />
+        <arg name="tf_prefix"               value="$(arg tf_prefix)"/>
+        <arg name="publish_tf"              value="$(arg publish_tf)"/>
+        <arg name="publish_odom_tf"         value="$(arg publish_odom_tf)"/>
+        <arg name="align_depth"             value="$(arg align_depth)"/>
+        <arg name="enable_pointcloud"       value="$(arg enable_pointcloud)"/>
+        <arg name="output"                  value="$(arg output)"/>
+    </include>
 
     <!-- Launch the ROS YOLO node -->
     <include file="$(find ros_yolo)/launch/yolo.launch">
@@ -35,7 +55,7 @@
         <arg name="yolo_image_out"          value="$(arg yolo_image_out)" />
         <arg name="yolo_bounding_box_out"   value="$(arg bb_topic)" />
         <arg name="output_frame"            value="$(arg output_frame)" />
-        <arg name="simulation"              value="True" />
+        <arg name="simulation"              value="False" />
     </include>
 
     <!-- Launch the main node -->
@@ -48,8 +68,8 @@
         <arg name="raw_image_out_topic"     value="$(arg raw_image_out_topic)" />
         <arg name="color_image_out_topic"   value="$(arg color_image_out_topic)" />
         <arg name="depth_image_out_topic"   value="$(arg depth_image_out_topic)" />
-        <arg name="bb_3d_out_topic"         value="$(arg bb_3d_topic)" /> 
-        <arg name="simulation"              value="True" />   
+        <arg name="bb_3d_out_topic"         value="$(arg bb_3d_topic)" />  
+        <arg name="simulation"              value="False" />
     </include>
 
     <!-- Launch the tracker node -->
@@ -62,6 +82,6 @@
         <arg name="bb_3d_topic"             value="$(arg bb_3d_topic)" />
     </include>
 
-    <node pkg="rviz" type="rviz" name="ros_3d_bb_rviz" args="-d $(find ros_3d_bb)/config/rviz.rviz" if="$(arg rviz)" />
+    <node pkg="rviz" type="rviz" name="ros_3d_bb_rviz" args="-d $(find ros_3d_bb)/config/realsense.rviz" if="$(arg rviz)" />
     
 </launch>

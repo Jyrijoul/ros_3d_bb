@@ -9,14 +9,17 @@
     <arg name="color_image_out_topic" default="ros_3d_bb/color" doc="The modified color image output topic." />
     <arg name="depth_image_out_topic" default="ros_3d_bb/depth" doc="The depth image output topic" />
     <arg name="bb_3d_out_topic" default="ros_3d_bb/bb_3d" doc="The 3D bounding box output topic" />
+    <arg name="simulation" default="true" doc="Whether the camera is simulated" />
 
     <!-- Launching the main node. -->
     <node pkg="ros_3d_bb" type="main.py" name="ros_3d_bb_main" output="screen">
         <!-- Overall configuration is read from a config file. -->
         <rosparam command="load" file="$(find ros_3d_bb)/config/config_main.yaml" />
 
-        <!-- This parameter is set separately to enable changing it from the command line. -->
+        <!-- These parameters are set separately to enable changing them from the command line. -->
         <param name="frame_id" value="$(arg frame_id)" />
+        <!-- The simulation parameter is needed due to differences between the real and simulated RealSense cameras. -->
+        <param name="simulation" value="$(arg simulation)" />
 
         <!-- Remapping both input and output topics. -->
         <remap from="camera_info" to="$(arg camera_info)" />
