@@ -34,7 +34,7 @@ Then, just clone this repository and use _catkin build_ to compile it.
 
 In order to actually do useful work, a 2D detector has to publish the 2D bounding box information to a specified topic. To acquire the 2D detector, please clone the [ros_yolo repository](https://github.com/Jyrijoul/ros_yolo) and follow the instructions provided.
 
-This package can be used with any image source, for example an Intel RealSense depth camera or its simulated version. 
+This package can be used with any image source, for example an Intel RealSense depth camera or its simulated version. For detailed installation instructions for the real camera, go to https://github.com/IntelRealSense/realsense-ros and preferably go with _Method 1: The ROS distribution_ under the _Installation Instructions_.
 
 ## Usage instructions
 
@@ -43,7 +43,7 @@ This package is composed of two main nodes: the main node and the tracker node. 
 Both the launch files and configuration files enable extensive configuration of the nodes, using the ROS parameter server and topic remapping. Be sure to check them out and see what options there are. In addition to the documentation found in these files, the Python scripts can often offer more extensive documentation.
 
 ### Simulation with Robotont
-For using this node with a simulated Robotont robot, first install the necessary packages, such as [robotont_gazebo](https://github.com/robotont/robotont_gazebo) and its dependencies. Then, use ```gazebo.launch``` from the _ros_3d_bb_ package to run the simulation with a provided world. To control the robot, run ```rosrun teleop_twist_keyboard teleop_twist_keyboard.py```. Finally, it is recommended to use ```roslaunch ros_3d_bb simulation.launch``` to launch all the necessary _ros_3d_bb_ and _ros_yolo_ nodes to perform 3D object detection, tracking, and trajectory prediction.
+For using this node with a simulated Robotont robot, first install the necessary packages, such as [robotont_gazebo](https://github.com/robotont/robotont_gazebo) and its dependencies. Then, use ```gazebo.launch``` from the _ros_3d_bb_ package to run the simulation with a provided world. To control the robot, run ```rosrun teleop_twist_keyboard teleop_twist_keyboard.py```. Finally, it is recommended to use ```roslaunch ros_3d_bb simulation.launch```, using a top-level launch file to launch all the necessary _ros_3d_bb_ and _ros_yolo_ nodes to perform 3D object detection, tracking, and trajectory prediction.
 
 ### Real camera
-If using the real camera, (eg Intel RealSense D435), use ```roslaunch realsense2_camera rs_aligned_depth.launch``` to start the camera feed. Launch the other nodes similarly to instructions provided in the previous sections.
+If using a real camera, (eg Intel RealSense D435), use ```roslaunch ros_3d_bb realsense.launch``` to start the camera feed and all the necessary _ros_3d_bb_ and _ros_yolo_ nodes to perform 3D object detection, tracking, and trajectory prediction.
